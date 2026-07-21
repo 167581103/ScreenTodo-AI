@@ -1,0 +1,20 @@
+# 依赖
+node_modules/
+
+# 密钥 / 私有配置(含 DeepSeek API key)——用 config.example.json 作模板
+config.json
+
+# 运行时产物 / 进程文件
+*.pid
+*.log
+*.out
+
+# 捕获的真实数据(含个人工作/群聊内容,敏感,不入库)
+suggestions.jsonl
+decisions.jsonl
+captured_todos.md
+monitor.paused
+.tmp_plan_*.json
+
+# macOS
+.DS_Store

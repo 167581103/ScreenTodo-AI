@@ -1,0 +1,21 @@
+{
+  "deepseek": {
+    "apiBase": "https://api.deepseek.com",
+    "apiKey": "sk-YOUR_DEEPSEEK_API_KEY",
+    "model": "deepseek-chat"
+  },
+  "screenpipe": {
+    "apiBase": "http://localhost:3030",
+    "searchLimit": 300
+  },
+  "monitor": {
+    "intervalSec": 5,
+    "todoFile": "captured_todos.md",
+    "winFrames": 6,
+    "winPerFrame": 900,
+    "winMaxChars": 4500,
+    "baselineFrames": 30,
+    "ignoreApps": ["WorkBuddy", "Electron", "聚焦", "终端"],
+    "ignoreTextHints": ["验证健康", "测一下", "等50秒", "排查Screenpipe", "重启supervisor", "dump脚本", "自愈", "让它就绪"]
+  }
+}

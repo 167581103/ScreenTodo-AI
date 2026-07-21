@@ -1,0 +1,12 @@
+{
+  "name": "screen-orb",
+  "version": "0.1.0",
+  "description": "本地悬浮球:实时监听屏幕,发现隐藏需求主动弹窗添加待办",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  }
+}
