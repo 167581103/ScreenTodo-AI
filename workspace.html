@@ -26,7 +26,7 @@
     --off-wash:#F7E7E8;
 
     --r-s:6px; --r-m:9px; --r-l:12px;
-    --overlay-h:38px;
+    --overlay-h:28px;
     --z-drawer:100; --z-drag:200;
     --e-out:cubic-bezier(.22,.61,.36,1);
   }
@@ -56,6 +56,7 @@
     font-size:14px;line-height:1.5;
   }
   ::selection{background:var(--accent-wash)}
+  /* 顶部 28px 透明拖拽区:沉浸式(曝光交通灯)且顶部可拖动 */
   .drag-strip{position:fixed;top:0;left:0;right:0;height:var(--overlay-h);-webkit-app-region:drag;z-index:var(--z-drag)}
   .app{display:flex;height:100%;padding-top:var(--overlay-h)}
 
@@ -234,6 +235,8 @@
   .chat-page:hover .vscroll{pointer-events:auto}
   .chat-page:hover .vscroll .thumb{opacity:.7}
   .chat-body{flex:1;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px;scrollbar-width:none;position:relative}
+  /* 顶部很淡的渐隐:文本滚到最上沿时柔和消失(沉浸感,不挡点击) */
+  .chat-fade{position:absolute;top:0;left:0;right:0;height:30px;background:linear-gradient(var(--bg),transparent);pointer-events:none;z-index:4}
   .chat-body::-webkit-scrollbar{width:0}
   /* 跟随鼠标的科技感小圈:灰/黑描边圆环,位置在 --mx/--my,平滑跟随 */
   .chat-glow{
@@ -271,6 +274,11 @@
   .chat-empty{color:var(--ink-3);font-size:13px;text-align:center;margin:auto;max-width:320px;line-height:1.6}
   /* 用户输入 = 气泡(右侧)。中性浅灰底、无边框;深色模式用半透明 ink 叠加自适应 */
   .msg{max-width:78%;padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+  .msg.u{}
+  .msg.u .mention{color:var(--accent-ink);font-weight:600;white-space:nowrap}
+  .msg.u .mention-at{font-size:.7em;opacity:.55;color:var(--ink-2);margin-right:1px;font-weight:500}
+  .msg.u .ref-hint{margin-top:6px;font-size:12.5px;color:var(--ink-3);line-height:1.6}
+  .msg.u .ref-label{color:var(--accent-ink);font-weight:600}
   .msg.u{align-self:flex-end;background:#F3F3F4;color:var(--ink);border-bottom-right-radius:5px}
   :root[data-theme=dark] .msg.u{background:color-mix(in srgb,var(--ink) 12%,transparent)}
   @media (prefers-color-scheme:dark){:root:not([data-theme=light]) .msg.u{background:color-mix(in srgb,var(--ink) 12%,transparent)}}
@@ -334,25 +342,28 @@
     border-color:var(--ink-3);background:var(--raised);
     box-shadow:0 0 0 3px color-mix(in srgb,var(--ink) 10%,transparent),inset 0 1px 2px color-mix(in srgb,var(--ink) 4%,transparent);
   }
-  .chat-bar textarea{
-    flex:1;resize:none;border:none;background:none;outline:none;
+  .chat-text{
+    flex:1;min-height:20px;max-height:120px;overflow-y:auto;scrollbar-width:none;
+    border:none;background:none;outline:none;
     padding:8px 4px;font-size:13.5px;font-family:inherit;color:var(--ink);
-    max-height:120px;line-height:1.5;align-self:center;
+    line-height:1.5;align-self:center;white-space:pre-wrap;word-break:break-word;
   }
-  .chat-bar textarea::placeholder{color:var(--ink-3)}
+  .chat-text::-webkit-scrollbar{width:0}
+  .chat-text:empty:before{content:attr(data-ph);color:var(--ink-3);pointer-events:none}
+  /* @引用:黑白风格渲染(实际是给 Agent 的调用提示) */
+  .chat-text .mention{color:var(--accent-ink);font-weight:600;white-space:nowrap;cursor:default;user-select:none}
+  .chat-text .mention-at{font-size:.7em;opacity:.55;color:var(--ink-2);margin-right:1px;font-weight:500}
 
-  /* 圆形语音按钮 */
-  .chat-mic{
+  /* 圆形「+」按钮:合并原语音 / 工具入口 */
+  .chat-add{
     width:34px;height:34px;flex:none;border:none;border-radius:50%;cursor:pointer;
     background:transparent;color:var(--ink-3);display:flex;align-items:center;justify-content:center;
     transition:background .14s var(--e-out),color .14s var(--e-out),transform .12s var(--e-out);
   }
-  .chat-mic:hover{color:var(--ink);background:color-mix(in srgb,var(--ink) 7%,transparent)}
-  .chat-mic:active{transform:scale(.9)}
-  .chat-mic svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.7;fill:none}
-  .chat-mic.recording{color:var(--off);background:var(--off-wash)}
-  .chat-mic.recording svg{animation:mic-pulse 1.1s ease-in-out infinite}
-  @keyframes mic-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .chat-add:hover{color:var(--ink);background:color-mix(in srgb,var(--ink) 7%,transparent)}
+  .chat-add:active{transform:scale(.9)}
+  .chat-add.active{color:var(--accent-ink);background:var(--accent-wash)}
+  .chat-add svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round}
 
   /* 圆角矩形发送按钮:沿用 logo 资产动画(纸飞机 hover 弹性飞出 → logo 弧勾滑入),仅外形由圆改方 */
   .chat-send{
@@ -397,6 +408,8 @@
   .taglist{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
   .taglist:empty{margin-bottom:0}
   .tag{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);background:var(--panel);border:1px solid var(--line);padding:4px 8px 4px 11px;border-radius:var(--r-s)}
+  .tag b{font-weight:600}
+  .tag .tname{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;color:var(--ink-3);background:color-mix(in srgb,var(--ink) 7%,transparent);padding:1px 5px;border-radius:5px;font-weight:400}
   .tag button{border:none;background:none;color:var(--ink-3);cursor:pointer;font-size:14px;line-height:1;padding:0;transition:color .14s}
   .tag button:hover{color:var(--off)}
   .tagin{
@@ -407,6 +420,67 @@
   .tagin:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash)}
   .tagin::placeholder{color:var(--ink-3)}
   .set-note{font-size:12px;color:var(--ink-3);line-height:1.6;padding-top:4px}
+  /* ── 「+」弹层:锚定在按钮上方,一级菜单 + 二级子面板(全黑白) ── */
+  .add-pop{
+    position:absolute;left:14px;bottom:74px;width:240px;max-width:calc(100% - 28px);
+    max-height:65vh;
+    display:flex;flex-direction:column;background:var(--raised);border:1px solid var(--line-2);
+    border-radius:12px;overflow:visible;
+    box-shadow:0 10px 36px color-mix(in srgb,var(--ink) 10%,transparent);
+    z-index:30;
+    transform:translateY(6px);opacity:0;pointer-events:none;
+    transition:transform .14s var(--e-out),opacity .14s var(--e-out);
+  }
+  .add-pop.open{transform:translateY(0);opacity:1;pointer-events:auto}
+  .add-main{display:flex;flex-direction:column;max-height:65vh;overflow-y:auto;scrollbar-width:none;border-radius:12px;background:var(--raised)}
+  .add-main::-webkit-scrollbar{width:0}
+  /* 二级飞窗(悬停浮现,溢出到一级右侧) */
+  .add-sub{display:none;position:absolute;left:100%;top:0;width:320px;max-height:100%;
+    flex-direction:column;overflow:hidden;
+    background:var(--raised);border:1px solid var(--line-2);
+    border-radius:12px;
+    box-shadow:4px 4px 24px color-mix(in srgb,var(--ink) 10%,transparent);
+    z-index:31;
+  }
+  .add-sub.show{display:flex}
+  .add-sub::-webkit-scrollbar{width:0}
+  .add-sep{height:1px;background:var(--line);margin:3px 12px;flex:none}
+  .add-section{font-size:11px;color:var(--ink-3);padding:7px 14px 3px;letter-spacing:.02em}
+  .add-row{display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;transition:background .1s var(--e-out);flex:none}
+  .add-row:hover{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+  .add-row.focus{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+  .add-row .ar-ic{flex:none;width:20px;height:20px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
+  .add-row .ar-ic svg{width:16px;height:16px}
+  .add-row .ar-txt{flex:1;font-size:13px;color:var(--ink);min-width:0}
+  .add-row .ar-sub{font-size:11px;color:var(--ink-3);flex:none}
+  .add-row .ar-chev{flex:none;display:flex;align-items:center;justify-content:center;color:var(--ink-2);margin-right:-2px}
+  .add-row .ar-chev svg{width:14px;height:14px}
+  /* 最近使用:紧凑 + 类型标签 */
+  .add-recent .ar-ic{width:18px;height:18px}
+  .add-recent .ar-ic svg{width:14px;height:14px}
+  .add-recent .ar-txt{font-size:12.5px}
+  .add-recent .ar-tag{font-size:10px;color:var(--ink-3);background:var(--panel);padding:1px 6px;border-radius:4px;flex:none}
+
+  /* 二级内项:整行可点,黑底 hover */
+  .add-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:background .1s var(--e-out)}
+  .add-item:hover{background:color-mix(in srgb,var(--ink) 5%,transparent)}
+  .add-item .ai-ic{flex:none;width:22px;height:22px;border-radius:5px;background:var(--panel);color:var(--ink-2);display:flex;align-items:center;justify-content:center}
+  .add-item .ai-ic svg{width:14px;height:14px}
+  .add-item .ai-main{flex:1;min-width:0}
+  .add-item .ai-name{font-size:13px;color:var(--ink);font-weight:500}
+  .add-item .ai-desc{font-size:11px;color:var(--ink-3);margin-top:1px}
+  .add-action{display:flex;align-items:center;gap:8px;padding:9px 14px;cursor:pointer;border-radius:8px;color:var(--ink-2);font-size:12.5px;transition:background .1s var(--e-out),color .1s}
+  .add-action:hover{background:color-mix(in srgb,var(--ink) 5%,transparent);color:var(--ink)}
+  .add-action .aa-ic{display:flex;align-items:center}
+  .add-action .aa-ic svg{width:16px;height:16px}
+  .add-empty{color:var(--ink-3);font-size:12.5px;text-align:center;padding:28px 12px;line-height:1.6}
+  .add-vscroll,.add-vscroll2{position:absolute;top:0;right:0;width:10px;pointer-events:none;z-index:6}
+  .add-pop:hover .add-vscroll,.add-sub.show .add-vscroll2{pointer-events:auto}
+  .add-vthumb,.add-vthumb2{position:absolute;right:2px;width:6px;border-radius:3px;background:var(--ink);opacity:0;transition:opacity .18s ease,width .15s ease;min-height:28px}
+  .add-vscroll.hot .add-vthumb,.add-vscroll2.hot .add-vthumb2,.add-vthumb.drag,.add-vthumb2.drag{opacity:.5;width:8px}
+  .add-vthumb.drag,.add-vthumb2.drag{background:var(--ink);opacity:.65}
+
+  /* ── 工具可见性面板样式已移除(迁移到对话内「+」弹层) ── */
 
   @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   /* 仅首次加载入场;数据刷新不再重播(否则每 5s 闪一下) */
@@ -463,13 +537,16 @@
     <!-- 对话页面(默认主视图) -->
     <div class="view view-chat" id="view-chat">
       <div class="chat-page">
+        <div class="chat-fade"></div>
         <div class="chat-body" id="chat-body">
           <div class="chat-glow" id="chat-glow"></div>
         </div>
         <div class="chat-input">
           <div class="chat-bar" id="chat-bar">
-            <button class="chat-mic" id="chat-mic" aria-label="语音输入" title="语音输入"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke-linecap="round"/></svg></button>
-            <textarea id="chat-text" rows="1" placeholder="发消息…"></textarea>
+            <button class="chat-add" id="chat-add" aria-label="添加引用" title="引用工具 / 连接器 / 文件 / 对话">
+              <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+            </button>
+            <div id="chat-text" class="chat-text" contenteditable="true" role="textbox" data-ph="发消息…"></div>
             <button class="chat-send" id="chat-send" aria-label="发送">
               <span class="send-plane"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></span>
               <span class="send-logo"><svg viewBox="0 0 52 52"><path class="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg></span>
@@ -477,6 +554,27 @@
           </div>
         </div>
         <div class="vscroll" id="cscroll"><div class="thumb" id="cthumb"></div></div>
+        <div class="add-pop" id="chat-add-pop">
+          <div class="add-main" id="add-main">
+            <div class="add-vscroll" id="add-vs"><div class="add-vthumb" id="add-vt"></div></div>
+            <label class="add-row" id="add-attach">
+              <span class="ar-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg></span>
+              <span class="ar-txt">附件</span>
+              <input type="file" id="add-file-in" multiple accept="*" style="display:none">
+            </label>
+            <div class="add-sep"></div>
+            <div class="add-section" id="add-recent-label" style="display:none">最近使用</div>
+            <div id="add-recent"></div>
+            <div class="add-sep" id="add-sep2"></div>
+            <div class="add-row" data-to="tool"><span class="ar-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg></span><span class="ar-txt">工具</span><span class="ar-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span></div>
+            <div class="add-row" data-to="session"><span class="ar-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span><span class="ar-txt">对话</span><span class="ar-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span></div>
+            <div class="add-row" data-to="connector"><span class="ar-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7h3a5 5 0 010 10h-3m-6 0H6a5 5 0 010-10h3M8 12h8"/></svg></span><span class="ar-txt">连接器</span><span class="ar-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg></span></div>
+          </div>
+          <div class="add-sub" id="add-sub">
+            <div class="add-sub-body" id="add-sub-body"></div>
+            <div class="add-vscroll2" id="add-vs2"><div class="add-vthumb2" id="add-vt2"></div></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="view view-settings hidden" id="view-settings">
@@ -688,6 +786,8 @@
   document.getElementById('deny-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('deny',e.target.value);e.target.value='';}});
   document.getElementById('allow-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('allow',e.target.value);e.target.value='';}});
 
+  // ── 工具可见性面板已移除(迁移到对话内「+」弹层,见 chatPanel) ──
+
   // ── 系统进程选择器(datalist):聚焦时获取运行进程,供黑/白名单输入补全 ──
   let procsCache=null;
   async function populateProcs(){
@@ -743,6 +843,13 @@
   window.__syncScroll = bindScroll(document.getElementById('canvas'), document.getElementById('vscroll'), document.getElementById('vthumb'), document.getElementById('list'));
   window.__syncDrawer = bindScroll(document.getElementById('d-body'), document.getElementById('dscroll'), document.getElementById('dthumb'), document.getElementById('d-body'));
   window.__syncChat = bindScroll(document.getElementById('chat-body'), document.getElementById('cscroll'), document.getElementById('cthumb'), document.getElementById('chat-body'));
+  // 弹层滚动条（add-main 和 add-sub-body 各自独立）
+  setTimeout(()=>{
+    const m=document.getElementById('add-main'), s1=document.getElementById('add-vs'), t1=document.getElementById('add-vt');
+    const sb=document.getElementById('add-sub-body'), s2=document.getElementById('add-vs2'), t2=document.getElementById('add-vt2');
+    if(m&&s1&&t1) bindScroll(m,s1,t1, m);
+    if(sb&&s2&&t2) bindScroll(sb,s2,t2, sb);
+  },200);
 
   if(window.__RECALL__) window.renderRecall();
 
@@ -912,7 +1019,7 @@
         } else if (m.role === 'tool') {
           // 历史工具行:只存了工具名,渲染成与实时一致的极简行(无详情可展开)
           const d = document.createElement('div'); d.className = 'tool-line';
-          d.innerHTML = '<div class="th" style="cursor:default"><span class="ic">✓</span><span class="verb">'
+          d.innerHTML = '<div class="th" style="cursor:default"><span class="ic"><svg viewBox="14 15 25 23" width="1.2em" height="1.2em" style="vertical-align:-.1em;fill:none" aria-hidden="true"><path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="verb">'
             + esc(typeof toolVerb === 'function' ? toolVerb(m.content) : m.content) + '</span></div>';
           body.appendChild(d);
         } else {
@@ -1004,16 +1111,30 @@
   // ── 对话面板(整页视图 + agui 流式 + md 渲染) ──
   (function chatPanel(){
     const body=document.getElementById('chat-body');
-    const ta=document.getElementById('chat-text');
+    const ta=document.getElementById('chat-text');            // contenteditable 输入区
     const sendBtn=document.getElementById('chat-send');
+    const addBtn=document.getElementById('chat-add');
+    const addPop=document.getElementById('chat-add-pop');
     if(!ta)return;
     let busy=false;
-    // 每会话输入框草稿:切走存、切入取。内存级(刷新丢),对草稿够用
-    window.__chatDraft = {
-      read(){ return ta.value; },
-      set(v){ ta.value = v||''; ta.style.height='auto'; ta.style.height=Math.min(120, ta.scrollHeight)+'px'; },
+    // 开源 SVG 图标集（Feather-style，24x24 viewBox）
+    const I={paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>',
+      wrench: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
+      chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+      link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7h3a5 5 0 010 10h-3m-6 0H6a5 5 0 010-10h3M8 12h8"/></svg>',
+      terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+      server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
+      plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+      chevronR: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>',
+      arrowL: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
     };
-    const micBtn=document.getElementById('chat-mic');
+    // 每会话输入框草稿:切走存、切入取(内存级)。存 innerHTML 以保留 @mention 蓝字
+    window.__chatDraft = {
+      read(){ return ta.innerHTML; },
+      set(v){ ta.innerHTML = v||''; autoGrow(); },
+    };
+    function autoGrow(){ ta.style.height='auto'; ta.style.height=Math.min(120, ta.scrollHeight)+'px'; }
     // 跟随鼠标的科技感小圈:平滑 lerp 追随光标(带一点延迟惯性感)
     const glow=document.getElementById('chat-glow');
     if(glow){
@@ -1041,39 +1162,333 @@
       body.addEventListener('mousedown',(e)=>{ if(overText(e.target)){ selecting=true; glow.classList.add('selecting'); } });
       window.addEventListener('mouseup',()=>{ if(selecting){ selecting=false; glow.classList.remove('selecting'); } });
     }
-    // 自增高
-    ta.addEventListener('input',()=>{ ta.style.height='auto'; ta.style.height=Math.min(120,ta.scrollHeight)+'px'; });
+    // 自增高 + @ 触发弹层
+    ta.addEventListener('input',onInput);
 
-    // ── 语音输入(Web Speech API;环境不支持时优雅降级) ──
-    let recognizer=null, recording=false, recBase='';
-    function flashMicNote(msg){ if(micBtn) micBtn.title=msg; }
-    function stopRec(){
-      recording=false;
-      if(micBtn) micBtn.classList.remove('recording');
-      if(recognizer){ try{recognizer.stop();}catch(_){} recognizer=null; }
+    // ── @引用 + 「+」两层弹层:一级主菜单 / 二级子面板(含最近使用) ──
+    const TAB_LABEL={tool:'工具',connector:'连接器',file:'文件',session:'对话'};
+    // 最近使用（跨类型，最多9，localStorage 持久）
+    const RECENT_KEY='orb-recent-mentions';
+    function loadRecents(){ try{ return JSON.parse(localStorage.getItem(RECENT_KEY)||'[]'); }catch(e){ return []; } }
+    function saveRecents(r){ try{ localStorage.setItem(RECENT_KEY,JSON.stringify(r.slice(0,9))); }catch(e){} }
+    let recentMentions=loadRecents();
+    function addRecent(type,name,label){
+      recentMentions=recentMentions.filter(m=>!(m.type===type&&m.name===name));
+      recentMentions.unshift({type,name,label});
+      recentMentions=recentMentions.slice(0,9); saveRecents(recentMentions);
     }
-    function startRec(){
-      if(recording) return;
-      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-      if(!SR){ flashMicNote('当前环境不支持语音输入(需系统/浏览器语音识别)'); if(micBtn) micBtn.classList.add('unsupported'); return; }
-      const r=new SR();
-      r.lang='zh-CN'; r.interimResults=true; r.continuous=false;
-      r.onresult=(e)=>{
-        let txt=''; for(let i=e.resultIndex;i<e.results.length;i++) txt+=e.results[i][0].transcript;
-        ta.value=(recBase||'')+txt; ta.style.height='auto'; ta.style.height=Math.min(120,ta.scrollHeight)+'px';
-      };
-      r.onend=()=>stopRec();
-      r.onerror=(ev)=>{ const bad=(ev&&(ev.error==='not-allowed'||ev.error==='service-not-allowed'));
-        flashMicNote(bad?'麦克风权限被拒绝':'语音识别出错，已停止'); stopRec(); };
-      try{ r.start(); recording=true; recBase=ta.value; if(micBtn) micBtn.classList.remove('unsupported'); micBtn.classList.add('recording'); micBtn.title='正在聆听…再点停止'; }
-      catch(_){ flashMicNote('无法启动语音识别'); }
+    const addMain=document.getElementById('add-main');
+    const addSub=document.getElementById('add-sub');
+    const addSubBody=document.getElementById('add-sub-body');
+    let pendingRange=null;
+    function getCaretRange(){
+      const s=window.getSelection();
+      if(s&&s.rangeCount&&ta.contains(s.anchorNode)) return s.getRangeAt(0).cloneRange();
+      return null;
     }
-    if(micBtn) micBtn.addEventListener('click',()=>{ recording?stopRec():startRec(); });
+    function caretBeforeChar(){
+      const s=window.getSelection();
+      if(!s||!s.rangeCount) return null;
+      const r=s.getRangeAt(0), n=r.startContainer;
+      if(n&&n.nodeType===3&&r.startOffset>0) return n.textContent[r.startOffset-1];
+      return null;
+    }
+    function maybeOpenAt(){ if(caretBeforeChar()==='@'){ pendingRange=getCaretRange(); openAddPop(); } }
+    function onInput(){ if(ta.textContent==='') ta.innerHTML=''; autoGrow(); maybeOpenAt(); }
+
+    // ── 一级主菜单 (Hover → 浮现二级飞窗 + Safe Triangle) ──
+    let focusedRow=null, focusedTab=null, lastMouseP=null;
+    function openAddPop(){
+      addPop.classList.add('open'); addBtn.classList.add('active');
+      addSub.classList.remove('show'); focusedRow=null; focusedTab=null; lastMouseP=null;
+      renderRecents();
+    }
+    function closeAddPop(){
+      addPop.classList.remove('open'); addBtn.classList.remove('active');
+      addSub.classList.remove('show');
+      if(focusedRow) focusedRow.classList.remove('focus');
+      focusedRow=null; focusedTab=null; lastMouseP=null;
+    }
+    if(addBtn){
+      addBtn.addEventListener('mousedown',()=>{ pendingRange=getCaretRange(); });
+      addBtn.addEventListener('click',()=>{ if(addPop.classList.contains('open')) closeAddPop(); else openAddPop(); });
+    }
+    document.addEventListener('mousedown',(e)=>{
+      if(!addPop.classList.contains('open')) return;
+      if(e.target.closest('#chat-add-pop')||e.target.closest('#chat-add')) return;
+      closeAddPop();
+    });
+
+    // Safe Triangle: 判断点 M 是否在 △PBC 内 (P=离开一级前的坐标, B/C=二级飞窗左上/左下角)
+    function _cross(a,b,c){ return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x); }
+    function inTriangle(P,B,C,M){
+      const d1=_cross(M,P,B), d2=_cross(M,B,C), d3=_cross(M,C,P);
+      return (d1>=0&&d2>=0&&d3>=0)||(d1<=0&&d2<=0&&d3<=0);
+    }
+
+    let _tmr=null;
+    function onMouseMovePop(e){
+      if(!focusedTab||!addSub.classList.contains('show')) return;
+      const sr=addSub.getBoundingClientRect();
+      const inSub=e.clientX>=sr.left&&e.clientX<=sr.right&&e.clientY>=sr.top&&e.clientY<=sr.bottom;
+      const FR=focusedRow;
+      const inRow=FR&&(e.clientX>=FR.getBoundingClientRect().left&&e.clientX<=FR.getBoundingClientRect().right
+        &&e.clientY>=FR.getBoundingClientRect().top&&e.clientY<=FR.getBoundingClientRect().bottom);
+      if(inSub||inRow){ clearTimeout(_tmr); return; }
+      if(lastMouseP){
+        const B={x:sr.left,y:sr.top}, C={x:sr.left,y:sr.bottom}, M={x:e.clientX,y:e.clientY};
+        if(inTriangle(lastMouseP,B,C,M)){ clearTimeout(_tmr); return; }
+      }
+      clearTimeout(_tmr);
+      _tmr=setTimeout(()=>{
+        if(focusedRow) focusedRow.classList.remove('focus');
+        addSub.classList.remove('show'); focusedRow=null; focusedTab=null; lastMouseP=null;
+      },150);
+    }
+
+    // 一级行 mouseenter → 浮现二级
+    document.querySelectorAll('#add-main .add-row[data-to]').forEach(row=>{
+      row.addEventListener('mouseenter',()=>{
+        clearTimeout(_tmr);
+        if(focusedRow) focusedRow.classList.remove('focus');
+        const tab=row.dataset.to;
+        row.classList.add('focus'); focusedRow=row; focusedTab=tab; lastMouseP=null;
+        // 二级飞窗对齐到当前行 + 边界防护（不超出 popup 底、不超出视口）
+        const rt=row.getBoundingClientRect(), pt=addPop.getBoundingClientRect();
+        const top=Math.max(0, rt.top-pt.top);
+        // 可用高度 = popup 底到行顶的距离，再夹紧到视口
+        const avail=Math.max(120, pt.height-top);
+        addSub.style.top=top+'px';
+        addSub.style.maxHeight=avail+'px';
+        addSub.classList.add('show');
+        renderSub(tab);
+      });
+      row.addEventListener('mouseleave',(e)=>{
+        lastMouseP={x:e.clientX,y:e.clientY};
+      });
+      row.addEventListener('click',()=>{
+        if(focusedRow) focusedRow.classList.remove('focus');
+        row.classList.add('focus'); focusedRow=row; focusedTab=row.dataset.to; lastMouseP=null;
+        const rt=row.getBoundingClientRect(), pt=addPop.getBoundingClientRect();
+        const top=Math.max(0, rt.top-pt.top);
+        const avail=Math.max(120, pt.height-top);
+        addSub.style.top=top+'px';
+        addSub.style.maxHeight=avail+'px';
+        addSub.classList.add('show');
+        renderSub(row.dataset.to);
+      });
+    });
+
+    addSub.addEventListener('mouseleave',(e)=>{
+      lastMouseP={x:e.clientX,y:e.clientY};
+      if(focusedTab) onMouseMovePop(e);
+    });
+    document.addEventListener('mousemove',(e)=>{
+      if(addPop.classList.contains('open')&&focusedTab) onMouseMovePop(e);
+    });
+    addPop.addEventListener('mouseleave',()=>{
+      clearTimeout(_tmr);
+      _tmr=setTimeout(()=>{
+        if(focusedRow) focusedRow.classList.remove('focus');
+        addSub.classList.remove('show'); focusedRow=null; focusedTab=null; lastMouseP=null;
+      },200);
+    });
+    addPop.addEventListener('mouseenter',()=>{ clearTimeout(_tmr); });
+    function renderRecents(){
+      const el=document.getElementById('add-recent');
+      const lbl=document.getElementById('add-recent-label');
+      const sep=document.getElementById('add-sep2');
+      if(!recentMentions.length){ lbl.style.display='none'; el.style.display='none'; sep.style.display='none'; return; }
+      lbl.style.display=''; el.style.display=''; sep.style.display='';
+      const RC={tool: I.wrench, connector: I.link, file: I.paperclip, session: I.chat};
+      el.innerHTML=recentMentions.map(m=>{
+        const ic=RC[m.type]||'';
+        const tag=m.type==='tool'?'工具':m.type==='connector'?'连接器':m.type==='file'?'文件':'对话';
+        return '<div class="add-row add-recent" data-type="'+esc(m.type)+'" data-name="'+esc(m.name)+'" data-label="'+esc(m.label)+'">'
+          +'<span class="ar-ic">'+ic+'</span>'
+          +'<span class="ar-txt">'+esc(m.label)+'</span>'
+          +'<span class="ar-tag">'+tag+'</span>'
+          +'</div>';
+      }).join('');
+      el.querySelectorAll('.add-row').forEach(row=>{
+        row.addEventListener('click',()=>{
+          insertMention(row.dataset.type,row.dataset.name,row.dataset.label);
+          closeAddPop();
+        });
+      });
+    }
+    // (行 hover / click 已在 Safe Triangle 段绑定)
+
+    // ── 附件：调用文件选择器，选中的文件作为 @file mention 注入 ──
+    const fileIn=document.getElementById('add-file-in');
+    document.getElementById('add-attach').addEventListener('click',(e)=>{
+      // label 的 for/click 会冒泡 → 触发 input.click；这里不做额外处理
+    });
+    fileIn.addEventListener('change',()=>{
+      for(const f of fileIn.files){
+        insertMention('file',f.name,f.name);
+        addRecent('file',f.name,f.name);
+      }
+      fileIn.value=''; closeAddPop();
+    });
+
+    // ── 二级子面板(随 hover 浮现，无返回按钮) ──
+    function openAddSub(tab){
+      addSub.classList.add('show');
+      renderSub(tab);
+    }
+    function closeAddSub(){ addSub.classList.remove('show'); }
+
+    // 缓存每个子面板的 fetched data
+    const subCache={};
+    async function renderSub(tab){
+      addSubBody.innerHTML='<div class="add-empty">加载中…</div>';
+      // 所有子面板均每次重拉(原缓存易导致 localStorage 导入工具不刷新)
+      subCache[tab]=null;
+      if(!subCache[tab]){
+        try{
+          if(tab==='tool'||tab==='connector'){
+            const r=await window.orb.toolsList(); const cats=(r&&r.categories)||[];
+            const want=tab==='tool'?['builtin','local','mcp']:['connectors'];
+            subCache[tab]=cats.filter(c=>want.includes(c.key));
+          }else if(tab==='session'){
+            const d=await window.orb.listSessions();
+            subCache[tab]=(d.list||[]).map(s=>({name:s.name,desc:(s.msgCount||0)+' 条消息',rawName:s.id}));
+          }else if(tab==='file'){
+            const f=await window.orb.listFiles();
+            subCache[tab]=(f||[]).map(fn=>({name:fn,rawName:fn}));
+          }
+        }catch(e){ subCache[tab]=[]; }
+      }
+      if(tab==='tool'){
+        const cats=subCache[tab];
+        let html='';
+        const icons={builtin: I.terminal, local: I.folder, mcp: I.server};
+        cats.forEach(cat=>{
+          const items=cat.tools||[];
+          html+='<div class="add-section">'+esc(cat.label)+'</div>';
+          if(!items.length){ html+='<div class="add-empty">暂无已接入的工具</div>'; }
+          else{
+            html+=items.map((t,i)=>'<div class="add-item" data-cat="'+esc(cat.key)+'" data-i="'+i+'">'
+              +'<div class="ai-ic">'+(icons[cat.key]||'')+'</div>'
+              +'<div class="ai-main"><div class="ai-name">'+esc(t.label||t.name)+'</div>'
+              +(t.desc?'<div class="ai-desc">'+esc(t.desc)+'</div>':'')+'</div>'
+              +'</div>').join('');
+          }
+          html+='<div class="add-sep"></div>';
+        });
+        // 导入本地工具入口
+        html+='<div class="add-action" id="add-import-local">'
+          +'<span class="aa-ic">'+I.plus+'</span>'
+          +'<span>导入本地工具</span>'
+          +'</div>';
+        addSubBody.innerHTML=html;
+        // 绑定项点击
+        addSubBody.querySelectorAll('.add-item').forEach(el=>{
+          el.addEventListener('click',()=>{
+            const cat=el.dataset.cat;
+            const items=(cats.find(c=>c.key===cat)||{}).tools||[];
+            const t=items[+el.dataset.i];
+            if(!t) return;
+            const raw=t.name, label=t.label||t.name;
+            insertMention('tool',raw,label); addRecent('tool',raw,label);
+            closeAddPop();
+          });
+        });
+        // 导入本地工具:文件选择器 → 加入本地工具列表并持久化
+        document.getElementById('add-import-local').addEventListener('click',()=>{
+          const inp=document.createElement('input');
+          inp.type='file'; inp.accept='.sh,.py,.js,.rb';
+          inp.addEventListener('change',()=>{
+            for(const f of inp.files){
+              const imported={name:f.name,label:f.name,desc:decodeURIComponent(f.name).replace(/\.[^.]+$/,'')+'（从文件导入）',status:'active'};
+              // 写入本地 storage 扩展列表
+              let localX=[]; try{ localX=JSON.parse(localStorage.getItem('orb-local-tools')||'[]'); }catch(e){}
+              localX.push(imported); localStorage.setItem('orb-local-tools',JSON.stringify(localX));
+              // 注入本次渲染
+              const lc=cats.find(c=>c.key==='local');
+              if(lc){ lc.tools=lc.tools||[]; lc.tools.push(imported); }
+            }
+            subCache[tab]=null; renderSub(tab);
+          });
+          inp.click();
+        });
+      }else if(tab==='session'){
+        const list=subCache[tab]||[];
+        if(!list.length){ addSubBody.innerHTML='<div class="add-empty">还没有对话</div>'; return; }
+        addSubBody.innerHTML=list.map((s,i)=>
+          '<div class="add-item" data-i="'+i+'">'
+          +'<div class="ai-ic">'+I.chat+'</div>'
+          +'<div class="ai-main"><div class="ai-name">'+esc(s.name)+'</div>'
+          +(s.desc?'<div class="ai-desc">'+esc(s.desc)+'</div>':'')+'</div>'
+          +'</div>'
+        ).join('');
+        addSubBody.querySelectorAll('.add-item').forEach(el=>{
+          el.addEventListener('click',()=>{
+            const s=list[+el.dataset.i];
+            insertMention('session',s.rawName,s.name); addRecent('session',s.rawName,s.name);
+            closeAddPop();
+          });
+        });
+      }else if(tab==='connector'){
+        const cats=subCache[tab]||[];
+        if(!cats.length||!cats.some(c=>(c.tools||[]).length)){
+          addSubBody.innerHTML='<div class="add-empty">暂无已接入的连接器</div>'; return;
+        }
+        let html='';
+        cats.forEach(cat=>{
+          const items=cat.tools||[];
+          if(!items.length) return;
+          html+='<div class="add-section">'+esc(cat.label)+'</div>';
+          html+=items.map((t,i)=>'<div class="add-item" data-cat="'+esc(cat.key)+'" data-i="'+i+'">'
+            +'<div class="ai-ic">'+I.link+'</div>'
+            +'<div class="ai-main"><div class="ai-name">'+esc(t.label||t.name)+'</div>'
+            +(t.desc?'<div class="ai-desc">'+esc(t.desc)+'</div>':'')+'</div>'
+            +'</div>').join('');
+        });
+        addSubBody.innerHTML=html||'<div class="add-empty">暂无已接入的连接器</div>';
+        addSubBody.querySelectorAll('.add-item').forEach(el=>{
+          el.addEventListener('click',()=>{
+            const ck=el.dataset.cat;
+            const items=((cats.find(c=>c.key===ck)||{}).tools||[]);
+            const t=items[+el.dataset.i]; if(!t) return;
+            insertMention('connector',t.name,t.label||t.name); addRecent('connector',t.name,t.label||t.name);
+            closeAddPop();
+          });
+        });
+      }
+    }
+
+    // ── 插入蓝字 @mention(全黑白风格) ──
+    function insertMention(type,name,label){
+      ta.focus();
+      let rng=pendingRange||null;
+      if(!rng){ const s=window.getSelection(); if(s&&s.rangeCount) rng=s.getRangeAt(0); }
+      if(!rng){ rng=document.createRange(); rng.selectNodeContents(ta); rng.collapse(false); }
+      const sn=rng.startContainer, so=rng.startOffset;
+      let work=rng;
+      if(sn&&sn.nodeType===3&&so>0&&sn.textContent[so-1]==='@'){
+        work=document.createRange(); work.setStart(sn,so-1); work.setEnd(sn,so); work.deleteContents();
+      }
+      work.collapse(true);
+      const span=document.createElement('span');
+      span.className='mention'; span.contentEditable='false';
+      span.dataset.type=type; span.dataset.name=name;
+      const at=document.createElement('span'); at.className='mention-at'; at.textContent='@';
+      span.appendChild(at); span.appendChild(document.createTextNode(label));
+      const zw=document.createTextNode('​');
+      work.insertNode(zw); work.insertNode(span);
+      const nr=document.createRange(); nr.setStartAfter(zw); nr.collapse(true);
+      const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(nr);
+      pendingRange=null; autoGrow(); onInput();
+    }
 
     function clearEmpty(){ const e=body.querySelector('.chat-empty'); if(e)e.remove(); }
-    function addUser(text){
+    function addUser(text, html){
       clearEmpty();
-      const d=document.createElement('div'); d.className='msg u'; d.textContent=text;
+      const d=document.createElement('div'); d.className='msg u';
+      if(html) d.innerHTML=html;
+      else d.textContent=text;
       body.appendChild(d); body.scrollTop=body.scrollHeight; return d;
     }
     function addThinking(){
@@ -1119,7 +1534,7 @@
       const d=document.createElement('div'); d.className='tool-line running';
       const sum=argSummary(name,args);
       d.innerHTML=
-        '<div class="th"><span class="ic">○</span>'
+        '<div class="th"><span class="ic"><svg viewBox="14 15 25 23" width="1.2em" height="1.2em" style="vertical-align:-.1em;fill:none" aria-hidden="true"><path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
         +'<span class="verb">'+esc(toolVerb(name))+'</span>'
         +(sum?'<span class="sum">'+esc(sum)+'</span>':'')
         +'<span class="chev">▸</span></div>'
@@ -1132,7 +1547,7 @@
     function finishToolLine(d, name, args, result){
       if(!d) return;
       d.classList.remove('running');
-      const ic=d.querySelector('.ic'); if(ic) ic.textContent='✓';
+      const ic=d.querySelector('.ic'); if(ic) ic.innerHTML='<svg viewBox="14 15 25 23" width="1.2em" height="1.2em" style="vertical-align:-.1em;fill:none" aria-hidden="true"><path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       let res=String(result||'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
       // 结果若是 JSON,提炼一句摘要(如"共 82 条")
       let brief='';
@@ -1211,15 +1626,24 @@
     window.__mdRender = md;
 
     async function send(){
-      const text=ta.value.trim(); if(!text||busy)return;
+      let text=(ta.innerText||'').replace(/\u200B/g,'').replace(/\s+$/,'').trim(); if(!text||busy)return;
+      // 收集 @引用 → 给 Agent 的纯文本保留提示,用户气泡渲染蓝字 HTML
+      const ms=[].slice.call(ta.querySelectorAll('.mention')).map(s=>({type:s.dataset.type,name:s.dataset.name,label:(s.textContent||'').replace(/^@/,'')}));
+      let sendText=text, msgHTML=ta.innerHTML.replace(/​/g,'').replace(/\s+$/g,'');
+      if(ms.length){
+        const g={}; ms.forEach(m=>{ (g[m.type]=g[m.type]||[]).push(m.label); });
+        const LM={tool:'工具',connector:'连接器',file:'文件',session:'对话'};
+        const parts=Object.keys(g).map(k=>LM[k]+'：'+g[k].join('、'));
+        sendText+='\n\n（引用提示：'+parts.join('；')+'）';
+      }
       busy=true; sendBtn.disabled=true;
-      addUser(text); ta.value=''; ta.style.height='auto';
+      addUser(sendText, msgHTML); ta.innerHTML=''; autoGrow(); closeAddPop();
 
       let think=addThinking();
       let curA=null, curTool=null, pending=null;
 
       try{
-        await window.orb.chatStream(text, {
+        await window.orb.chatStream(sendText, {
           onEvent(ev){
             switch(ev.type){
               case 'RUN_STARTED': break;
@@ -1261,7 +1685,7 @@
     }
     sendBtn.addEventListener('click',send);
     // Enter = 换行(不再误发送);⌘/Ctrl+Enter = 显式发送
-    ta.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); send(); } });
+    ta.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); send(); } else if(e.key==='@'){ pendingRange=getCaretRange(); openAddPop('tool'); } });
   })();
 </script>
 </body>
