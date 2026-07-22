@@ -72,36 +72,23 @@
 
   .nav-h{font-size:11px;font-weight:500;color:var(--ink-3);padding:8px 10px 4px}
   .tab{
-    display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-m);
+    display:flex;align-items:center;gap:9px;padding:7px 12px;border-radius:999px;
     font-size:13px;color:var(--ink-2);cursor:pointer;position:relative;
     transition:background .14s var(--e-out),color .14s var(--e-out);
     -webkit-app-region:no-drag;
   }
-  /* 左侧竖条指示器:选中时从中心展开,克制、不用色块 */
-  .tab::before{
-    content:"";position:absolute;left:0;top:50%;width:2.5px;height:0;
-    background:var(--ink);border-radius:2px;transform:translateY(-50%);
-    transition:height .18s var(--e-out);
-  }
   .tab .lbl{flex:1}
   .tab .cnt{font-size:11px;font-variant-numeric:tabular-nums;color:var(--ink-3);min-width:18px;text-align:right}
-  .tab:hover{background:color-mix(in srgb,var(--ink) 5%,transparent);color:var(--ink)}
-  .tab.active{color:var(--ink);font-weight:500}
-  .tab.active::before{height:15px}
+  .tab:hover{background:color-mix(in srgb,var(--ink) 6%,transparent);color:var(--ink)}
+  .tab.active{color:var(--ink);background:color-mix(in srgb,var(--ink) 12%,transparent)}
   .tab.active .cnt{color:var(--ink-2)}
 
-  .side-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--line)}
-  .foot-btn{
-    display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:none;background:none;
-    border-radius:var(--r-m);font-size:13px;color:var(--ink-2);cursor:pointer;text-align:left;
-    transition:background .14s var(--e-out),color .14s var(--e-out);-webkit-app-region:no-drag;
-    font-family:inherit;
-  }
-  .foot-btn:hover{background:color-mix(in srgb,var(--ink) 5%,transparent);color:var(--ink)}
-  .foot-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.7;fill:none;flex:none}
+  /* 侧栏带图标 tab(对话/设置)统一图标尺寸;设置 tab 推到最底部 */
+  .tab svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.7;fill:none;flex:none}
+  .tab.view-tab{margin-top:auto}
 
   /* ── main ── */
-  .main{flex:1;display:flex;flex-direction:column;position:relative;min-width:0}
+  .main{flex:1;display:flex;flex-direction:column;position:relative;min-width:0;height:100%;overflow:hidden}
   /* 原生滚动条隐藏,改用 JS 自定义 overlay 滚动条(真正可动画) */
   .canvas{flex:1;overflow-y:auto;scrollbar-width:none}
   .canvas::-webkit-scrollbar{width:0;height:0}
@@ -201,20 +188,195 @@
   .stline.ign{color:var(--off)} .stline.ign::before{background:var(--off)}
   .stline.pend{color:var(--ink-2)} .stline.pend::before{background:var(--ink-3)}
 
-  /* ── 设置弹层 ── */
-  .settings-scrim{position:fixed;inset:0;background:color-mix(in srgb,var(--ink) 30%,transparent);opacity:0;pointer-events:none;transition:opacity .2s var(--e-out);z-index:299}
-  .settings-scrim.on{opacity:1;pointer-events:auto}
-  .settings{
-    position:fixed;top:50%;left:50%;width:480px;max-width:92vw;max-height:84vh;
-    transform:translate(-50%,-48%) scale(.98);opacity:0;pointer-events:none;
-    background:var(--raised);border:1px solid var(--line-2);border-radius:var(--r-l);
-    box-shadow:0 24px 60px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;
-    transition:opacity .2s var(--e-out),transform .22s var(--e-out);z-index:300;
+  /* ── 视图容器:feed 与 chat 两种主视图,互斥显示 ── */
+  .view{position:absolute;inset:0;display:flex;flex-direction:column;min-width:0}
+  .view.hidden{display:none}
+
+  /* ── 多会话管理器 ── */
+  .chat-sec{padding:0 0 4px}
+  .chat-sec-label{font-size:11px;font-weight:500;color:var(--ink-3);padding:8px 10px 4px;user-select:none}
+  .session-list{display:flex;flex-direction:column;gap:3px;padding:0 4px}
+  /* 会话 = 胶囊。选中只用深色背景,不用左侧竖条 */
+  .session-item{position:relative;display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12.5px;color:var(--ink-2);transition:background .14s var(--e-out),color .14s var(--e-out)}
+  .session-item:hover{background:color-mix(in srgb,var(--ink) 6%,transparent);color:var(--ink)}
+  .session-item.active{color:var(--ink);background:color-mix(in srgb,var(--ink) 12%,transparent)}
+  .session-item.dragging{opacity:.5;background:var(--panel);cursor:grabbing}
+  /* 拖拽插入指示线:细 accent 线,靠伪元素画在项的上/下边缘 */
+  .session-item.drop-above,.session-item.drop-below{overflow:visible}
+  .session-item.drop-above::after,.session-item.drop-below::after{
+    content:"";position:absolute;left:12px;right:10px;height:2px;border-radius:1px;background:var(--accent);pointer-events:none;
   }
-  .settings.on{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
-  .settings .sh{display:flex;align-items:center;padding:18px 22px 14px;border-bottom:1px solid var(--line)}
-  .settings .sh h2{font-size:16px;font-weight:600;flex:1;letter-spacing:-.01em}
-  .settings .sb{padding:20px 22px 24px;overflow-y:auto}
+  .session-item.drop-above::after{top:-2px}
+  .session-item.drop-below::after{bottom:-2px}
+  .session-item .ses-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* ... 菜单触发按钮:始终占位,靠 opacity/visibility 显隐(用 display 会改变行高→选中/hover 高度跳) */
+  .ses-menu-btn{display:flex;align-items:center;justify-content:center;width:20px;height:20px;margin:-2px 0;border:none;border-radius:999px;background:transparent;color:var(--ink-3);cursor:pointer;font-size:15px;line-height:1;letter-spacing:1px;flex:none;opacity:0;visibility:hidden;transition:color .1s,background .1s,opacity .12s}
+  .session-item:hover .ses-menu-btn,.session-item.active .ses-menu-btn{opacity:1;visibility:visible}
+  .ses-menu-btn:hover{color:var(--ink);background:color-mix(in srgb,var(--ink) 12%,transparent)}
+  /* ... 弹出菜单(文本按钮) */
+  .ses-menu{position:fixed;z-index:50;min-width:120px;background:var(--panel);border:1px solid var(--line-2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px;display:flex;flex-direction:column}
+  .ses-menu button{display:block;width:100%;text-align:left;padding:7px 12px;border:none;background:none;border-radius:6px;font-size:12.5px;color:var(--ink);cursor:pointer;font-family:inherit;transition:background .1s}
+  .ses-menu button:hover{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+  .ses-menu button.danger{color:var(--off)}
+  .ses-menu button.danger:hover{background:var(--off-wash)}
+  .session-new{display:flex;align-items:center;gap:4px;padding:7px 8px 7px 14px;margin-top:2px;border-radius:999px;cursor:pointer;font-size:11.5px;color:var(--ink-3);transition:color .12s,background .12s;border:none;background:none;width:100%;text-align:left;font-family:inherit}
+  .session-new:hover{color:var(--accent);background:color-mix(in srgb,var(--ink) 8%,transparent)}
+  .ses-rename{border:none;background:transparent;font-size:12.5px;color:var(--ink);font-weight:inherit;line-height:inherit;width:100%;padding:0;margin:0;outline:none;font-family:inherit;box-shadow:inset 0 -1px 0 var(--accent)}
+  .top-divider{height:1px;background:var(--line);margin:4px 8px 10px}
+
+  /* ── 对话页面(默认主视图,整页) ── */
+  .chat-page{position:relative;display:flex;flex-direction:column;height:100%;background:var(--bg);min-width:0}
+  /* 对话区复用自定义 overlay 滚动条(同主列表:hover 变粗变暗,可动画) */
+  .chat-page:hover .vscroll{pointer-events:auto}
+  .chat-page:hover .vscroll .thumb{opacity:.7}
+  .chat-body{flex:1;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px;scrollbar-width:none;position:relative}
+  .chat-body::-webkit-scrollbar{width:0}
+  /* 跟随鼠标的科技感小圈:灰/黑描边圆环,位置在 --mx/--my,平滑跟随 */
+  .chat-glow{
+    position:absolute;top:0;left:0;width:22px;height:22px;border-radius:50%;
+    border:1.5px solid color-mix(in srgb,var(--ink) 45%,transparent);
+    background:transparent;
+    transform:translate(-50%,-50%);pointer-events:none;z-index:5;opacity:0;
+    transition:opacity .22s var(--e-out),
+      width .18s var(--e-out),height .18s var(--e-out),
+      border-radius .18s var(--e-out),border-width .18s var(--e-out),
+      background-color .18s var(--e-out);
+    will-change:left,top;
+  }
+  .chat-body:hover .chat-glow{opacity:.7}
+  /* 悬停在可选文本上时:圆环形变为自定义 IBeam 文本选择光标(灰/黑,同一套语言) */
+  .chat-glow.ibeam{
+    width:4px;height:20px;border-radius:1px;
+    border:1px solid color-mix(in srgb,var(--ink) 20%,transparent);
+    border-top-width:0;border-bottom-width:0;
+    background:color-mix(in srgb,var(--ink) 62%,transparent);
+    opacity:.85;
+  }
+  /* IBeam 上下的衬线小横(经典 I 形),用伪元素画 */
+  .chat-glow.ibeam::before,.chat-glow.ibeam::after{
+    content:"";position:absolute;left:50%;width:9px;height:1.5px;
+    transform:translateX(-50%);
+    background:color-mix(in srgb,var(--ink) 62%,transparent);
+    border-radius:1px;
+  }
+  .chat-glow.ibeam::before{top:-1px}
+  .chat-glow.ibeam::after{bottom:-1px}
+  .chat-glow.ibeam.selecting{opacity:1;background:var(--ink)}
+  /* 隐藏可选文本区的原生光标,交给自定义 IBeam 呈现 */
+  .chat-body:hover .answer,.chat-body:hover .msg{cursor:none}
+  .chat-empty{color:var(--ink-3);font-size:13px;text-align:center;margin:auto;max-width:320px;line-height:1.6}
+  /* 用户输入 = 气泡(右侧)。中性浅灰底、无边框;深色模式用半透明 ink 叠加自适应 */
+  .msg{max-width:78%;padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+  .msg.u{align-self:flex-end;background:#F3F3F4;color:var(--ink);border-bottom-right-radius:5px}
+  :root[data-theme=dark] .msg.u{background:color-mix(in srgb,var(--ink) 12%,transparent)}
+  @media (prefers-color-scheme:dark){:root:not([data-theme=light]) .msg.u{background:color-mix(in srgb,var(--ink) 12%,transparent)}}
+  /* 对话区选中高亮:用 accent 实色+白字,浅气泡/正文上都醒目(全局的 accent-wash 太淡看不清) */
+  .chat-body .msg ::selection,.chat-body .msg::selection,
+  .chat-body .answer ::selection,.chat-body .answer::selection{background:var(--accent);color:#fff}
+  .thinking{align-self:flex-start;color:var(--ink-3);font-size:13px;padding:2px 2px 2px 4px;display:flex;align-items:center;gap:7px}
+  .thinking::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink-3);animation:think-pulse 1s ease-in-out infinite}
+  @keyframes think-pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+
+  /* Agent 输出 = playground:无气泡、无边框,全宽自由渲染的 markdown 内容区 */
+  .answer{align-self:stretch;width:100%;color:var(--ink);font-size:13.5px;line-height:1.7;padding:2px 2px 6px}
+  .answer.streaming::after{content:"▌";color:var(--ink-3);animation:caret .9s step-end infinite;margin-left:1px}
+  @keyframes caret{50%{opacity:0}}
+  .answer > *:first-child{margin-top:0}
+  .answer > *:last-child{margin-bottom:0}
+  .answer p{margin:0 0 10px;line-height:1.7}
+  .answer h1,.answer h2,.answer h3{margin:16px 0 8px;line-height:1.3;font-weight:650;letter-spacing:-.01em}
+  .answer h1{font-size:19px} .answer h2{font-size:16px} .answer h3{font-size:14.5px}
+  .answer ul,.answer ol{margin:0 0 10px;padding-left:22px}
+  .answer li{margin:3px 0;line-height:1.7}
+  .answer li::marker{color:var(--ink-3)}
+  .answer strong{font-weight:650;color:var(--ink)}
+  .answer a{color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px}
+  .answer code{font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,monospace;font-size:12.5px;background:color-mix(in srgb,var(--ink) 9%,transparent);padding:1.5px 6px;border-radius:6px}
+  .answer pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;margin:0 0 12px;scrollbar-width:none}
+  .answer pre::-webkit-scrollbar{height:0}
+  .answer pre code{background:none;padding:0;font-size:12.5px;line-height:1.65;white-space:pre}
+  .answer blockquote{margin:0 0 10px;padding:4px 14px;border-left:3px solid var(--line-2);color:var(--ink-2)}
+  .answer hr{border:none;border-top:1px solid var(--line);margin:14px 0}
+  .answer table{border-collapse:collapse;margin:0 0 12px;font-size:12.5px;width:100%}
+  .answer th,.answer td{border:1px solid var(--line);padding:6px 10px;text-align:left}
+  .answer th{background:color-mix(in srgb,var(--ink) 5%,transparent);font-weight:600}
+  /* 工具调用指示 */
+  /* 工具行:可读的"做了什么"——头部 [动作·摘要] + 可展开的详情(参数/结果)。让 Agent 行动过程可信、可查。 */
+  .tool-line{align-self:flex-start;max-width:88%;font-size:11.5px;color:var(--ink-2);background:color-mix(in srgb,var(--ink) 4%,transparent);border:1px solid var(--line);border-radius:10px;margin:3px 0;overflow:hidden;transition:background .14s var(--e-out)}
+  .tool-line .th{display:flex;align-items:center;gap:7px;padding:6px 11px;cursor:pointer;user-select:none}
+  .tool-line .ic{width:14px;height:14px;flex:none;display:flex;align-items:center;justify-content:center}
+  .tool-line .ic svg{width:14px;height:14px}
+  .tool-line .verb{font-weight:500;color:var(--ink);white-space:nowrap}
+  .tool-line .sum{color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .tool-line .chev{flex:none;color:var(--ink-3);transition:transform .16s var(--e-out);font-size:10px}
+  .tool-line.open .chev{transform:rotate(90deg)}
+  .tool-line .detail{max-height:0;overflow:hidden;transition:max-height .2s var(--e-out);border-top:1px solid transparent}
+  .tool-line.open .detail{max-height:260px;overflow:auto;border-top-color:var(--line)}
+  .tool-line .detail .kv{padding:7px 11px;font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;line-height:1.5;color:var(--ink-2);white-space:pre-wrap;word-break:break-word}
+  .tool-line .detail .kv b{color:var(--ink-3);font-weight:400}
+  .tool-line.running .ic svg{animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* ── chat input:参考 uiverse plastic-parrot,统一胶囊壳,内嵌 mic/输入/发送 ── */
+  .chat-input{padding:14px 20px 18px;border-top:1px solid var(--line);flex:none;background:var(--bg)}
+  .chat-bar{
+    display:flex;align-items:flex-end;gap:6px;padding:6px 6px 6px 8px;
+    background:var(--panel);border:1.5px solid var(--line-2);border-radius:22px;
+    box-shadow:inset 0 1px 2px color-mix(in srgb,var(--ink) 5%,transparent);
+    transition:border-color .18s var(--e-out),box-shadow .18s var(--e-out),background .18s var(--e-out);
+  }
+  .chat-bar:focus-within{
+    border-color:var(--ink-3);background:var(--raised);
+    box-shadow:0 0 0 3px color-mix(in srgb,var(--ink) 10%,transparent),inset 0 1px 2px color-mix(in srgb,var(--ink) 4%,transparent);
+  }
+  .chat-bar textarea{
+    flex:1;resize:none;border:none;background:none;outline:none;
+    padding:8px 4px;font-size:13.5px;font-family:inherit;color:var(--ink);
+    max-height:120px;line-height:1.5;align-self:center;
+  }
+  .chat-bar textarea::placeholder{color:var(--ink-3)}
+
+  /* 圆形语音按钮 */
+  .chat-mic{
+    width:34px;height:34px;flex:none;border:none;border-radius:50%;cursor:pointer;
+    background:transparent;color:var(--ink-3);display:flex;align-items:center;justify-content:center;
+    transition:background .14s var(--e-out),color .14s var(--e-out),transform .12s var(--e-out);
+  }
+  .chat-mic:hover{color:var(--ink);background:color-mix(in srgb,var(--ink) 7%,transparent)}
+  .chat-mic:active{transform:scale(.9)}
+  .chat-mic svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.7;fill:none}
+  .chat-mic.recording{color:var(--off);background:var(--off-wash)}
+  .chat-mic.recording svg{animation:mic-pulse 1.1s ease-in-out infinite}
+  @keyframes mic-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+  /* 圆角矩形发送按钮:沿用 logo 资产动画(纸飞机 hover 弹性飞出 → logo 弧勾滑入),仅外形由圆改方 */
+  .chat-send{
+    position:relative;width:52px;height:34px;flex:none;border:none;border-radius:14px;cursor:pointer;overflow:hidden;
+    background:var(--ink);color:var(--bg);display:flex;align-items:center;justify-content:center;
+    transition:transform .12s var(--e-out),box-shadow .18s var(--e-out),opacity .14s;
+    box-shadow:0 2px 6px color-mix(in srgb,var(--ink) 24%,transparent);
+  }
+  .chat-send:hover{transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb,var(--ink) 32%,transparent)}
+  .chat-send:active{transform:scale(.94)}
+  .chat-send:disabled{opacity:.4;cursor:default;box-shadow:none;transform:none}
+  .chat-send .send-plane,.chat-send .send-logo{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    transition:transform .3s cubic-bezier(.34,1.5,.5,1),opacity .2s var(--e-out);
+  }
+  .chat-send .send-plane svg{width:17px;height:17px;stroke:currentColor;fill:currentColor;stroke-width:1.5;stroke-linejoin:round}
+  .chat-send .send-logo{transform:translate(-120%,120%);opacity:0}
+  .chat-send .send-logo svg{width:22px;height:22px}
+  .chat-send .send-logo .arc{stroke:currentColor;fill:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+  .chat-send:hover .send-plane{transform:translate(130%,-130%);opacity:0}
+  .chat-send:hover .send-logo{transform:translate(0,0);opacity:1}
+
+  /* ── 设置页面(整页视图) ── */
+  .set-page{display:flex;flex-direction:column;height:100%;background:var(--bg);min-width:0}
+  .set-head{padding:20px 28px 16px;border-bottom:1px solid var(--line);flex:none}
+  .set-title{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+  .set-sub{font-size:12.5px;color:var(--ink-3);margin-top:2px}
+  .set-body{flex:1;overflow-y:auto;padding:24px 28px 40px;scrollbar-width:none}
+  .set-body::-webkit-scrollbar{width:0}
+  .set-inner{max-width:600px}
   .set-group{margin-bottom:24px}
   .set-group:last-of-type{margin-bottom:14px}
   .set-lbl{font-size:13.5px;font-weight:600;color:var(--ink);margin-bottom:3px}
@@ -256,63 +418,99 @@
       <svg class="mark" viewBox="0 0 52 52"><path class="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg>
       <div class="name">ScreenTodo</div>
     </div>
+    <!-- 多会话管理器 -->
+    <div class="chat-sec">
+      <div class="chat-sec-label">对话</div>
+      <div class="session-list" id="session-list"></div>
+      <button class="session-new" id="session-new">+ 新建会话</button>
+    </div>
+    <div class="top-divider"></div>
     <div class="nav-h">筛选</div>
-    <div class="tab active" data-f="all"><span class="lbl">全部</span><span class="cnt" id="c-all">0</span></div>
+    <div class="tab" data-f="all"><span class="lbl">全部</span><span class="cnt" id="c-all">0</span></div>
     <div class="tab pending" data-f="pending"><span class="lbl">待处理</span><span class="cnt" id="c-pending">0</span></div>
     <div class="tab accepted" data-f="accepted"><span class="lbl">已采纳</span><span class="cnt" id="c-accepted">0</span></div>
     <div class="tab ignored" data-f="ignored"><span class="lbl">已忽略</span><span class="cnt" id="c-ignored">0</span></div>
-    <div class="side-foot">
-      <button class="foot-btn" id="open-settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round"/></svg><span>设置</span></button>
+    <div class="top-divider"></div>
+    <div class="tab view-tab" id="tab-settings" data-view="settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="lbl">设置</span>
     </div>
   </aside>
 
   <section class="main">
-    <div class="canvas" id="canvas">
-      <header class="head"><h1 id="head-title">工作记忆</h1><p id="head-sub">从屏幕、对话与文档中安静捕获的上下文。</p></header>
-      <div class="feed" id="list"></div>
+    <!-- 工作记忆(筛选)视图 -->
+    <div class="view view-feed hidden" id="view-feed">
+      <div class="canvas" id="canvas">
+        <header class="head"><h1 id="head-title">工作记忆</h1><p id="head-sub">从屏幕、对话与文档中安静捕获的上下文。</p></header>
+        <div class="feed" id="list"></div>
+      </div>
+      <div class="vscroll" id="vscroll"><div class="thumb" id="vthumb"></div></div>
+
+      <div class="scrim" id="scrim"></div>
+      <aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-label="记忆详情">
+        <div class="dh"><h2 id="d-title">—</h2><button class="dclose" id="d-close" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg></button></div>
+        <div class="db" id="d-body"></div>
+        <div class="vscroll" id="dscroll"><div class="thumb" id="dthumb"></div></div>
+      </aside>
     </div>
-    <div class="vscroll" id="vscroll"><div class="thumb" id="vthumb"></div></div>
 
-    <div class="scrim" id="scrim"></div>
-    <aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-label="记忆详情">
-      <div class="dh"><h2 id="d-title">—</h2><button class="dclose" id="d-close" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg></button></div>
-      <div class="db" id="d-body"></div>
-      <div class="vscroll" id="dscroll"><div class="thumb" id="dthumb"></div></div>
-    </aside>
-  </section>
-</div>
-
-<!-- 设置弹层 -->
-<div class="settings-scrim" id="set-scrim"></div>
-<div class="settings" id="settings" role="dialog" aria-modal="true" aria-label="设置">
-  <div class="sh">
-    <h2>设置</h2>
-    <button class="dclose" id="set-close" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg></button>
-  </div>
-  <div class="sb">
-    <div class="set-group">
-      <div class="set-lbl">外观</div>
-      <div class="set-desc">工作台的明暗主题。</div>
-      <div class="seg" id="seg-theme">
-        <button data-t="auto" class="on">跟随系统</button>
-        <button data-t="light">亮色</button>
-        <button data-t="dark">深色</button>
+    <!-- 对话页面(默认主视图) -->
+    <div class="view view-chat" id="view-chat">
+      <div class="chat-page">
+        <div class="chat-body" id="chat-body">
+          <div class="chat-glow" id="chat-glow"></div>
+        </div>
+        <div class="chat-input">
+          <div class="chat-bar" id="chat-bar">
+            <button class="chat-mic" id="chat-mic" aria-label="语音输入" title="语音输入"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke-linecap="round"/></svg></button>
+            <textarea id="chat-text" rows="1" placeholder="发消息…"></textarea>
+            <button class="chat-send" id="chat-send" aria-label="发送">
+              <span class="send-plane"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></span>
+              <span class="send-logo"><svg viewBox="0 0 52 52"><path class="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg></span>
+            </button>
+          </div>
+        </div>
+        <div class="vscroll" id="cscroll"><div class="thumb" id="cthumb"></div></div>
       </div>
     </div>
-    <div class="set-group">
-      <div class="set-lbl">进程黑名单</div>
-      <div class="set-desc">这些应用里的内容不会被捕获（如终端、密码管理器）。回车添加。</div>
-      <div class="taglist" id="deny-list"></div>
-      <input class="tagin" id="deny-in" placeholder="输入应用名后回车…" />
+    <div class="view view-settings hidden" id="view-settings">
+      <div class="set-page">
+        <div class="set-head">
+          <div class="set-inner">
+            <div class="set-title">设置</div>
+            <div class="set-sub">外观、捕获范围等偏好。改动即时生效。</div>
+          </div>
+        </div>
+        <div class="set-body">
+          <div class="set-inner">
+            <div class="set-group">
+              <div class="set-lbl">外观</div>
+              <div class="set-desc">工作台的明暗主题。</div>
+              <div class="seg" id="seg-theme">
+                <button data-t="auto" class="on">跟随系统</button>
+                <button data-t="light">亮色</button>
+                <button data-t="dark">深色</button>
+              </div>
+            </div>
+            <div class="set-group">
+              <div class="set-lbl">进程黑名单</div>
+              <div class="set-desc">这些应用里的内容不会被捕获（如终端、密码管理器）。回车添加。</div>
+              <div class="taglist" id="deny-list"></div>
+              <input class="tagin" id="deny-in" placeholder="输入应用名后回车…" list="procs" />
+            </div>
+            <div class="set-group">
+              <div class="set-lbl">进程白名单</div>
+              <div class="set-desc">留空 = 监控全部应用；填了则<b>只</b>监控名单内的应用。</div>
+              <div class="taglist" id="allow-list"></div>
+              <input class="tagin" id="allow-in" placeholder="输入或从系统进程选择…" list="procs" />
+            </div>
+            <div class="set-note" id="set-note"></div>
+            <datalist id="procs"></datalist>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="set-group">
-      <div class="set-lbl">进程白名单</div>
-      <div class="set-desc">留空 = 监控全部应用；填了则<b>只</b>监控名单内的应用。</div>
-      <div class="taglist" id="allow-list"></div>
-      <input class="tagin" id="allow-in" placeholder="留空监控全部，或输入应用名后回车…" />
-    </div>
-    <div class="set-note" id="set-note"></div>
-  </div>
+  </section>
 </div>
 
 <script>
@@ -418,12 +616,32 @@
   document.getElementById('scrim').addEventListener('click',closeDetail);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDetail();});
 
-  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  // ── 视图切换:对话(默认) / 工作记忆(筛选) / 设置 ──
+  let view='chat';
+  function setView(v){
+    view=v;
+    document.getElementById('view-feed').classList.toggle('hidden', v!=='feed');
+    document.getElementById('view-chat').classList.toggle('hidden', v!=='chat');
+    document.getElementById('view-settings').classList.toggle('hidden', v!=='settings');
+    // 全局互斥激活:先清所有(侧栏 tab + 会话项),再点亮当前所在
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-    t.classList.add('active');
-    filter=t.dataset.f;
-    window.renderRecall();
+    if(v!=='chat') document.querySelectorAll('.session-item').forEach(x=>x.classList.remove('active'));
+    if(v==='chat'){
+      // 会话高亮由 renderSessionList 按 active 会话点亮;这里重渲一次确保状态同步
+      renderSessionList();
+      setTimeout(()=>{ const ta=document.getElementById('chat-text'); if(ta)ta.focus(); },120);
+    }else if(v==='settings'){
+      document.getElementById('tab-settings').classList.add('active');
+      loadFilter();
+    }else{
+      const f=document.querySelector('.tab[data-f="'+filter+'"]');
+      if(f)f.classList.add('active');
+    }
+  }
+  document.querySelectorAll('.tab[data-f]').forEach(t=>t.addEventListener('click',()=>{
+    filter=t.dataset.f; window.renderRecall(); setView('feed');
   }));
+  document.getElementById('tab-settings').addEventListener('click',()=>setView('settings'));
 
   // ── 外观模式:auto / light / dark ──
   function applyTheme(t){
@@ -436,12 +654,7 @@
   applyTheme(curTheme);
   document.querySelectorAll('#seg-theme button').forEach(b=>b.addEventListener('click',()=>{curTheme=b.dataset.t;applyTheme(curTheme);}));
 
-  // ── 设置弹层:打开/关闭 ──
-  function openSettings(){document.getElementById('settings').classList.add('on');document.getElementById('set-scrim').classList.add('on');loadFilter();}
-  function closeSettings(){document.getElementById('settings').classList.remove('on');document.getElementById('set-scrim').classList.remove('on');}
-  document.getElementById('open-settings').addEventListener('click',openSettings);
-  document.getElementById('set-close').addEventListener('click',closeSettings);
-  document.getElementById('set-scrim').addEventListener('click',closeSettings);
+  // ── 设置:已改为整页视图(见 setView),无弹层 ──
 
   // ── 黑/白名单编辑(读写 config.filter,经 preload IPC) ──
   let filterState={denyApps:[],allowApps:[]};
@@ -468,7 +681,21 @@
   }
   document.getElementById('deny-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('deny',e.target.value);e.target.value='';}});
   document.getElementById('allow-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('allow',e.target.value);e.target.value='';}});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSettings();});
+
+  // ── 系统进程选择器(datalist):聚焦时获取运行进程,供黑/白名单输入补全 ──
+  let procsCache=null;
+  async function populateProcs(){
+    if(procsCache) return procsCache;
+    if(window.orb&&window.orb.getRunningProcesses){
+      try{ procsCache=await window.orb.getRunningProcesses(); }catch(_){ procsCache=[]; }
+    }else{ procsCache=[]; }
+    const dl=document.getElementById('procs'); if(!dl) return procsCache;
+    dl.innerHTML='';
+    for(const p of procsCache) dl.insertAdjacentHTML('beforeend','<option value="'+esc(p)+'">');
+    return procsCache;
+  }
+  document.getElementById('deny-in').addEventListener('focus',populateProcs);
+  document.getElementById('allow-in').addEventListener('focus',populateProcs);
 
   // ── 自定义 overlay 滚动条:真正可动画(细→粗、淡→暗、拖拽)。工厂,复用于主列表 + 详情抽屉 ──
   function bindScroll(scrollEl, track, thumb, watchEl){
@@ -509,8 +736,506 @@
   }
   window.__syncScroll = bindScroll(document.getElementById('canvas'), document.getElementById('vscroll'), document.getElementById('vthumb'), document.getElementById('list'));
   window.__syncDrawer = bindScroll(document.getElementById('d-body'), document.getElementById('dscroll'), document.getElementById('dthumb'), document.getElementById('d-body'));
+  window.__syncChat = bindScroll(document.getElementById('chat-body'), document.getElementById('cscroll'), document.getElementById('cthumb'), document.getElementById('chat-body'));
 
   if(window.__RECALL__) window.renderRecall();
+
+  // ── 多会话管理:列表渲染 / 切换 / 创建 / 删除 / 重命名 ──
+  async function renderSessionList() {
+    if (!window.orb || !window.orb.listSessions) return;
+    let data;
+    try { data = await window.orb.listSessions(); } catch (e) { return; }
+    const list = document.getElementById('session-list');
+    if (!list) return;
+    list.innerHTML = data.list.map(s => `
+      <div class="session-item${s.id===data.active?' active':''}" data-sid="${esc(s.id)}">
+        <span class="ses-name">${esc(s.name)}</span>
+        <button class="ses-menu-btn" data-menu="${esc(s.id)}" title="更多" aria-label="更多">···</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('.session-item').forEach(item => {
+      item.addEventListener('pointerdown', e => onSesPointerDown(e, item, list));
+      item.addEventListener('click', async e => {
+        if (_sesDragMoved) { _sesDragMoved = false; return; }   // 拖拽结束的 click 不触发切换
+        if (e.target.closest('.ses-menu-btn')) return;
+        await switchToSession(item.dataset.sid);
+      });
+    });
+    list.querySelectorAll('.ses-menu-btn').forEach(btn => {
+      btn.addEventListener('click', e => { e.stopPropagation(); openSesMenu(btn, btn.dataset.menu); });
+    });
+  }
+
+  // ── 会话 ... 菜单(文本按钮:重命名 / 删除) ──
+  function closeSesMenu() {
+    const m = document.getElementById('__sesMenu');
+    if (m) m.remove();
+    document.removeEventListener('click', closeSesMenu, true);
+    window.removeEventListener('blur', closeSesMenu);
+  }
+  function openSesMenu(anchor, id) {
+    closeSesMenu();
+    const menu = document.createElement('div');
+    menu.className = 'ses-menu'; menu.id = '__sesMenu';
+    const bRename = document.createElement('button'); bRename.textContent = '重命名';
+    const bDel = document.createElement('button'); bDel.textContent = '删除'; bDel.className = 'danger';
+    menu.appendChild(bRename); menu.appendChild(bDel);
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect();
+    const mw = menu.offsetWidth || 120;
+    let left = r.right - mw;
+    if (left < 8) left = 8;
+    menu.style.left = left + 'px';
+    menu.style.top = (r.bottom + 4) + 'px';
+    // 若超出视口底部,翻到上方
+    if (r.bottom + 4 + menu.offsetHeight > window.innerHeight - 8) {
+      menu.style.top = (r.top - 4 - menu.offsetHeight) + 'px';
+    }
+    bRename.addEventListener('click', e => { e.stopPropagation(); closeSesMenu(); startRename(id); });
+    bDel.addEventListener('click', async e => { e.stopPropagation(); closeSesMenu(); await deleteSession(id); });
+    // 下一帧再挂全局关闭监听,避免当前这次 click 立即关掉
+    setTimeout(() => { document.addEventListener('click', closeSesMenu, true); window.addEventListener('blur', closeSesMenu); }, 0);
+  }
+
+  // ── 会话拖拽排序:纯 pointer 事件,长按 250ms 激活。不使用 HTML5 draggable(会禁掉文本选择/干扰光圈) ──
+  let _sesDrag = null, _sesDragMoved = false, _sesHoldTimer = null;
+  function clearDropMarks(list) { list.querySelectorAll('.session-item').forEach(i => i.classList.remove('drop-above', 'drop-below')); }
+  function onSesPointerDown(e, item, list) {
+    if (e.button !== 0) return;
+    if (e.target.closest('.ses-menu-btn') || e.target.closest('.ses-rename')) return;
+    const startY = e.clientY, sid = item.dataset.sid;
+    _sesDragMoved = false;
+    let active = false, marker = null, lastBefore = null;
+
+    const activate = () => {
+      active = true;
+      item.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'grabbing';
+    };
+    _sesHoldTimer = setTimeout(activate, 250);
+
+    const move = ev => {
+      if (!active) {
+        // 未激活前:移动超阈值则取消长按(视为滚动/误触),不进入拖拽
+        if (Math.abs(ev.clientY - startY) > 6) { clearTimeout(_sesHoldTimer); }
+        return;
+      }
+      _sesDragMoved = true;
+      clearDropMarks(list);
+      const items = [...list.querySelectorAll('.session-item')];
+      let target = null;
+      for (const it of items) {
+        if (it === item) continue;
+        const r = it.getBoundingClientRect();
+        if (ev.clientY >= r.top && ev.clientY <= r.bottom) { target = it; break; }
+      }
+      if (!target) {
+        // 落在列表首/尾空白
+        const first = items[0], last = items[items.length - 1];
+        if (first && ev.clientY < first.getBoundingClientRect().top) { first.classList.add('drop-above'); marker = { el: first, before: true }; }
+        else if (last && ev.clientY > last.getBoundingClientRect().bottom) { last.classList.add('drop-below'); marker = { el: last, before: false }; }
+        return;
+      }
+      const r = target.getBoundingClientRect();
+      const before = ev.clientY < r.top + r.height / 2;
+      target.classList.add(before ? 'drop-above' : 'drop-below');
+      marker = { el: target, before };
+    };
+
+    const up = async () => {
+      clearTimeout(_sesHoldTimer);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (!active) return;
+      item.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      clearDropMarks(list);
+      if (marker && marker.el && marker.el.dataset.sid !== sid) {
+        await reorderSession(sid, marker.el.dataset.sid, marker.before);
+      }
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  async function switchToSession(id) {
+    if (!window.orb || !window.orb.switchSession) return;
+    let ses;
+    try { ses = await window.orb.switchSession(id); } catch (_) { return; }
+    setView('chat');
+    renderSessionMessages(ses);
+    await renderSessionList();
+  }
+
+  // 清空对话区,但保留跟随光圈节点(chat-glow)。直接 innerHTML='' 会删掉 glow → 光圈/IBeam 失效
+  function clearChatBody(body) {
+    const glow = body.querySelector('#chat-glow');
+    body.innerHTML = '';
+    if (glow) body.appendChild(glow);
+    else { const g = document.createElement('div'); g.className = 'chat-glow'; g.id = 'chat-glow'; body.appendChild(g); }
+  }
+
+  // 每会话草稿存储(sid → 未发送文本)。切换会话时保存旧、恢复新
+  const _drafts = {};
+  let _curSid = null;
+  function saveCurrentDraft() {
+    if (_curSid != null && window.__chatDraft) _drafts[_curSid] = window.__chatDraft.read();
+  }
+  function renderSessionMessages(ses) {
+    const body = document.getElementById('chat-body');
+    if (!body) return;
+    // 先存旧会话草稿,再切
+    saveCurrentDraft();
+    clearChatBody(body);
+    // 用与流式渲染同一套同步 md(window.__mdRender);未就绪时退回转义+换行(绝不能用异步的 orb.renderMarkdown,会渲出 [object Promise])
+    const rmd = (s) => (window.__mdRender ? window.__mdRender(s) : esc(s||'').replace(/\n/g, '<br>'));
+    if (!ses || !ses.messages || !ses.messages.length) {
+      const empty = document.createElement('div'); empty.className = 'chat-empty'; empty.textContent = '开始一段对话吧。';
+      body.appendChild(empty);
+    } else {
+      for (const m of ses.messages) {
+        if (m.role === 'user') {
+          const d = document.createElement('div'); d.className = 'msg u'; d.textContent = m.content; body.appendChild(d);
+        } else if (m.role === 'tool') {
+          const d = document.createElement('div'); d.className = 'tool-line'; d.textContent = '✓ ' + m.content; body.appendChild(d);
+        } else {
+          const d = document.createElement('div'); d.className = 'answer'; d.innerHTML = rmd(m.content); body.appendChild(d);
+        }
+      }
+      body.scrollTop = body.scrollHeight;
+    }
+    // 恢复新会话草稿
+    _curSid = ses ? ses.id : null;
+    if (window.__chatDraft) window.__chatDraft.set(_curSid != null ? (_drafts[_curSid] || '') : '');
+  }
+
+  async function createSession() {
+    if (!window.orb || !window.orb.createSession) return;
+    let data;
+    try { data = await window.orb.createSession(); } catch (_) { return; }
+    await renderSessionList();
+    const ses = await window.orb.getSession(data.active);
+    renderSessionMessages(ses);
+    setView('chat');
+  }
+
+  async function deleteSession(id) {
+    if (!window.orb || !window.orb.deleteSession) return;
+    let data;
+    try { data = await window.orb.deleteSession(id); } catch (_) { return; }
+    await renderSessionList();
+    if (data.active) {
+      const ses = await window.orb.getSession(data.active);
+      renderSessionMessages(ses);
+    }
+  }
+
+  async function startRename(id) {
+    const item = document.querySelector('.session-item[data-sid="' + id + '"]');
+    if (!item) return;
+    const nameSpan = item.querySelector('.ses-name');
+    const oldName = nameSpan.textContent;
+    const input = document.createElement('input');
+    input.className = 'ses-rename'; input.value = oldName;
+    nameSpan.replaceWith(input);
+    input.focus(); input.select();
+    const finish = async () => {
+      const newName = input.value.trim() || oldName;
+      const restored = document.createElement('span'); restored.className = 'ses-name'; restored.textContent = newName;
+      input.replaceWith(restored);
+      if (newName !== oldName && window.orb && window.orb.renameSession) {
+        try { await window.orb.renameSession(id, newName); await renderSessionList(); } catch (_) {}
+      }
+    };
+    input.addEventListener('blur', finish);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(); if (e.key === 'Escape') { input.value = oldName; input.blur(); } });
+  }
+
+  async function reorderSession(dragId, targetId, insertBefore) {
+    if (!window.orb || !window.orb.listSessions) return;
+    let data;
+    try { data = await window.orb.listSessions(); } catch (_) { return; }
+    const arr = data.list;
+    const dragIdx = arr.findIndex(x => x.id === dragId);
+    let targetIdx = arr.findIndex(x => x.id === targetId);
+    if (dragIdx < 0 || targetIdx < 0 || dragIdx === targetIdx) return;
+    const [item] = arr.splice(dragIdx, 1);
+    if (dragIdx < targetIdx) targetIdx--;
+    if (insertBefore) arr.splice(targetIdx, 0, item);
+    else arr.splice(targetIdx + 1, 0, item);
+    const ids = arr.map(x => x.id);
+    try { await window.orb.reorderSessions(ids); await renderSessionList(); } catch (_) {}
+  }
+
+  document.getElementById('session-new').addEventListener('click', createSession);
+
+  // 启动时:加载会话列表 → 渲染活跃会话 → 进入对话视图
+  (async function initChat() {
+    try { await renderSessionList(); } catch (_) {}
+    if (window.orb && window.orb.listSessions) {
+      try {
+        const data = await window.orb.listSessions();
+        if (data.active) {
+          const ses = await window.orb.getSession(data.active);
+          renderSessionMessages(ses);
+        }
+      } catch (_) {}
+    }
+    setView('chat');
+  })();
+
+  // ── 对话面板(整页视图 + agui 流式 + md 渲染) ──
+  (function chatPanel(){
+    const body=document.getElementById('chat-body');
+    const ta=document.getElementById('chat-text');
+    const sendBtn=document.getElementById('chat-send');
+    if(!ta)return;
+    let busy=false;
+    // 每会话输入框草稿:切走存、切入取。内存级(刷新丢),对草稿够用
+    window.__chatDraft = {
+      read(){ return ta.value; },
+      set(v){ ta.value = v||''; ta.style.height='auto'; ta.style.height=Math.min(120, ta.scrollHeight)+'px'; },
+    };
+    const micBtn=document.getElementById('chat-mic');
+    // 跟随鼠标的科技感小圈:平滑 lerp 追随光标(带一点延迟惯性感)
+    const glow=document.getElementById('chat-glow');
+    if(glow){
+      let tx=0, ty=0, cx=0, cy=0, anim=0, inside=false, ibeam=false, selecting=false;
+      const tick=()=>{
+        // IBeam 模式(或拖拽选择中)不做惯性延迟,精准贴合;圆环模式保留 lerp 拖尾
+        const k = (ibeam||selecting) ? 1 : 0.22;
+        cx+=(tx-cx)*k; cy+=(ty-cy)*k;
+        glow.style.left=cx+'px'; glow.style.top=cy+'px';
+        if(inside || Math.abs(tx-cx)>0.5 || Math.abs(ty-cy)>0.5) anim=requestAnimationFrame(tick);
+        else anim=0;
+      };
+      // 命中可选文本区(answer/msg)→ 切 IBeam;否则圆环
+      const overText=(el)=> !!(el && el.closest && el.closest('.answer, .msg'));
+      body.addEventListener('mousemove',(e)=>{
+        const r=body.getBoundingClientRect();
+        tx=e.clientX-r.left; ty=e.clientY-r.top+body.scrollTop;
+        const nowIbeam = overText(e.target);
+        if(nowIbeam!==ibeam){ ibeam=nowIbeam; glow.classList.toggle('ibeam', ibeam); }
+        if(!anim) anim=requestAnimationFrame(tick);
+      });
+      body.addEventListener('mouseenter',()=>{ inside=true; });
+      body.addEventListener('mouseleave',()=>{ inside=false; ibeam=false; selecting=false; glow.classList.remove('ibeam','selecting'); });
+      // 拖拽选择中:IBeam 变实、精准贴合
+      body.addEventListener('mousedown',(e)=>{ if(overText(e.target)){ selecting=true; glow.classList.add('selecting'); } });
+      window.addEventListener('mouseup',()=>{ if(selecting){ selecting=false; glow.classList.remove('selecting'); } });
+    }
+    // 自增高
+    ta.addEventListener('input',()=>{ ta.style.height='auto'; ta.style.height=Math.min(120,ta.scrollHeight)+'px'; });
+
+    // ── 语音输入(Web Speech API;环境不支持时优雅降级) ──
+    let recognizer=null, recording=false, recBase='';
+    function flashMicNote(msg){ if(micBtn) micBtn.title=msg; }
+    function stopRec(){
+      recording=false;
+      if(micBtn) micBtn.classList.remove('recording');
+      if(recognizer){ try{recognizer.stop();}catch(_){} recognizer=null; }
+    }
+    function startRec(){
+      if(recording) return;
+      const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      if(!SR){ flashMicNote('当前环境不支持语音输入(需系统/浏览器语音识别)'); if(micBtn) micBtn.classList.add('unsupported'); return; }
+      const r=new SR();
+      r.lang='zh-CN'; r.interimResults=true; r.continuous=false;
+      r.onresult=(e)=>{
+        let txt=''; for(let i=e.resultIndex;i<e.results.length;i++) txt+=e.results[i][0].transcript;
+        ta.value=(recBase||'')+txt; ta.style.height='auto'; ta.style.height=Math.min(120,ta.scrollHeight)+'px';
+      };
+      r.onend=()=>stopRec();
+      r.onerror=(ev)=>{ const bad=(ev&&(ev.error==='not-allowed'||ev.error==='service-not-allowed'));
+        flashMicNote(bad?'麦克风权限被拒绝':'语音识别出错，已停止'); stopRec(); };
+      try{ r.start(); recording=true; recBase=ta.value; if(micBtn) micBtn.classList.remove('unsupported'); micBtn.classList.add('recording'); micBtn.title='正在聆听…再点停止'; }
+      catch(_){ flashMicNote('无法启动语音识别'); }
+    }
+    if(micBtn) micBtn.addEventListener('click',()=>{ recording?stopRec():startRec(); });
+
+    function clearEmpty(){ const e=body.querySelector('.chat-empty'); if(e)e.remove(); }
+    function addUser(text){
+      clearEmpty();
+      const d=document.createElement('div'); d.className='msg u'; d.textContent=text;
+      body.appendChild(d); body.scrollTop=body.scrollHeight; return d;
+    }
+    function addThinking(){
+      clearEmpty();
+      const d=document.createElement('div'); d.className='thinking'; d.textContent='思考中';
+      body.appendChild(d); body.scrollTop=body.scrollHeight; return d;
+    }
+    // Agent 输出:无气泡的 playground 内容块
+    function addAnswer(){
+      clearEmpty();
+      const d=document.createElement('div'); d.className='answer streaming'; d.innerHTML='';
+      body.appendChild(d); body.scrollTop=body.scrollHeight; return d;
+    }
+    // 打字机式流式:把完整文本逐字渐显,期间实时渲染 markdown。底层非流式(稳),前端做流式观感。
+    async function typewriter(el, full){
+      const atBottom=()=> body.scrollHeight-body.scrollTop-body.clientHeight < 40;
+      const total=full.length;
+      // 长文本步长大些,避免太慢;短文本一字一字
+      const step=total>400?6:(total>120?3:2);
+      let i=0, lastRender=0;
+      while(i<total){
+        i=Math.min(total,i+step);
+        const now=performance.now();
+        // 每 ~50ms 重渲一次 markdown(避免每字都渲染卡顿)
+        if(now-lastRender>50 || i>=total){ el.innerHTML=md(full.slice(0,i)); lastRender=now; }
+        if(atBottom()) body.scrollTop=body.scrollHeight;
+        await new Promise(r=>setTimeout(r,12));
+      }
+      el.classList.remove('streaming');
+      el.innerHTML = full && full.trim() ? md(full) : '<span style="color:var(--ink-3)">（没有返回内容）</span>';
+      if(atBottom()) body.scrollTop=body.scrollHeight;
+    }
+    // 工具名 → 人话动作 + 参数摘要,让"它做了什么"可读
+    const TOOL_VERB={ list_todos:'查待办', search_captured:'搜记忆', get_more_context:'看屏幕上下文', save_todo:'记待办' };
+    function toolVerb(name){ return TOOL_VERB[name] || name; }
+    function argSummary(name, args){
+      if(!args||typeof args!=='object') return '';
+      if(name==='list_todos') return ({today:'今天',pending:'待处理',all:'全部'})[args.scope]||args.scope||'';
+      if(name==='search_captured') return args.query? '“'+args.query+'”':'';
+      if(name==='get_more_context') return [args.app,args.hint].filter(Boolean).join(' · ');
+      if(name==='save_todo') return args.title||'';
+      const v=Object.values(args)[0]; return v? String(v):'';
+    }
+    const SPIN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9" opacity=".9"/></svg>';
+    const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+    function addToolLine(name, args){
+      const d=document.createElement('div'); d.className='tool-line running';
+      const sum=argSummary(name,args);
+      d.innerHTML=
+        '<div class="th"><span class="ic">'+SPIN+'</span>'
+        +'<span class="verb">'+esc(toolVerb(name))+'</span>'
+        +'<span class="sum">'+esc(sum)+'</span>'
+        +'<span class="chev">▶</span></div>'
+        +'<div class="detail"></div>';
+      const th=d.querySelector('.th');
+      th.addEventListener('click',()=>{ d.classList.toggle('open'); });
+      body.appendChild(d); body.scrollTop=body.scrollHeight; return d;
+    }
+    // 工具执行完:图标转勾、填详情(参数 + 结果摘要)
+    function finishToolLine(d, name, args, result){
+      if(!d) return;
+      d.classList.remove('running');
+      const ic=d.querySelector('.ic'); if(ic) ic.innerHTML=CHECK;
+      let res=String(result||'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
+      // 结果若是 JSON,提炼一句摘要(如"共 82 条")
+      let brief=res;
+      try{ const o=JSON.parse(res); if(o&&typeof o==='object'){ if('total' in o) brief='共 '+o.total+' 条'; else if(Array.isArray(o)) brief=o.length+' 条结果'; } }catch(e){}
+      const sumEl=d.querySelector('.sum');
+      if(sumEl && brief && brief.length<40 && brief!==res){ sumEl.textContent=(sumEl.textContent?sumEl.textContent+' → ':'')+brief; }
+      const det=d.querySelector('.detail');
+      if(det){
+        const argStr=(args&&Object.keys(args).length)?JSON.stringify(args):'（无）';
+        det.innerHTML='<div class="kv"><b>参数</b>  '+esc(argStr)+'</div>'
+          +'<div class="kv"><b>结果</b>  '+esc(res.length>1200?res.slice(0,1200)+' …':res)+'</div>';
+      }
+      body.scrollTop=body.scrollHeight;
+    }
+    // 轻量 markdown 渲染(渲染进程内,同步、零 IPC、零依赖)。覆盖 agent 常用语法:
+    // 标题/加粗/斜体/行内code/代码块/有序无序列表/引用/分割线/链接。先转义再逐条替换,防 XSS。
+    function md(s){
+      // 先剥掉控制字符/占位哨兵:OCR 结果可能含 \u0000 等,会与下面代码块占位冲突 → 渲染坍塌
+      let t = esc(String(s||'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,''));
+      // 代码块 ```...``` (先占位,避免内部被其它规则破坏)
+      const blocks=[];
+      t = t.replace(/```([\s\S]*?)```/g, (m,code)=>{ blocks.push(code.replace(/^\n/,'')); return '\u0000CB'+(blocks.length-1)+'\u0000'; });
+      const lines = t.split('\n');
+      let out=[], i=0;
+      while(i<lines.length){
+        let ln=lines[i];
+        // 代码块占位符独占行
+        const cb=ln.match(/^\u0000CB(\d+)\u0000$/);
+        if(cb){ out.push('<pre><code>'+blocks[+cb[1]]+'</code></pre>'); i++; continue; }
+        // 分割线
+        if(/^\s*---+\s*$/.test(ln)){ out.push('<hr>'); i++; continue; }
+        // 标题
+        let hm=ln.match(/^(#{1,3})\s+(.*)$/);
+        if(hm){ const lv=hm[1].length; out.push('<h'+lv+'>'+inline(hm[2])+'</h'+lv+'>'); i++; continue; }
+        // 引用
+        if(/^\s*>\s?/.test(ln)){ let q=[]; while(i<lines.length&&/^\s*>\s?/.test(lines[i])){ q.push(inline(lines[i].replace(/^\s*>\s?/,''))); i++; } out.push('<blockquote>'+q.join('<br>')+'</blockquote>'); continue; }
+        // 有序列表
+        if(/^\s*\d+\.\s+/.test(ln)){ let items=[]; while(i<lines.length&&/^\s*\d+\.\s+/.test(lines[i])){ items.push('<li>'+inline(lines[i].replace(/^\s*\d+\.\s+/,''))+'</li>'); i++; } out.push('<ol>'+items.join('')+'</ol>'); continue; }
+        // 无序列表
+        if(/^\s*[-*]\s+/.test(ln)){ let items=[]; while(i<lines.length&&/^\s*[-*]\s+/.test(lines[i])){ items.push('<li>'+inline(lines[i].replace(/^\s*[-*]\s+/,''))+'</li>'); i++; } out.push('<ul>'+items.join('')+'</ul>'); continue; }
+        // 空行
+        if(/^\s*$/.test(ln)){ i++; continue; }
+        // 普通段落(合并连续非空非块行)
+        let para=[ln]; i++;
+        while(i<lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,3}\s|>\s?|\s*[-*]\s|\s*\d+\.\s|\s*---+\s*$)/.test(lines[i]) && !/^\u0000CB\d+\u0000$/.test(lines[i])){ para.push(lines[i]); i++; }
+        out.push('<p>'+para.map(inline).join('<br>')+'</p>');
+      }
+      return out.join('');
+    }
+    // 行内:加粗/斜体/行内code/链接
+    function inline(s){
+      return s
+        .replace(/`([^`]+)`/g,'<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g,'<em>$1</em>')
+        .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2">$1</a>');
+    }
+    // 暴露给外部(历史会话渲染复用同一套同步 md,避免异步 IPC 渲染出 [object Promise])
+    window.__mdRender = md;
+
+    async function send(){
+      const text=ta.value.trim(); if(!text||busy)return;
+      busy=true; sendBtn.disabled=true;
+      addUser(text); ta.value=''; ta.style.height='auto';
+
+      let think=addThinking();
+      let curA=null, curTool=null, pending=null;
+
+      try{
+        await window.orb.chatStream(text, {
+          onEvent(ev){
+            switch(ev.type){
+              case 'RUN_STARTED': break;
+              case 'TEXT_MESSAGE_START':
+                if(think){ think.remove(); think=null; }
+                curA=addAnswer(); pending='';
+                break;
+              case 'TEXT_MESSAGE_CONTENT':
+                pending=(pending||'')+(ev.delta||'');   // 后端非流式:整段一次到达,先攒着
+                break;
+              case 'TEXT_MESSAGE_END':
+                // 用打字机把这段渐显渲染(异步,不阻塞事件)
+                if(curA && pending!=null){ const el=curA, txt=pending; typewriter(el, txt); }
+                curA=null; pending=null;
+                break;
+              case 'TOOL_CALL_START':
+                if(think){ think.remove(); think=null; }
+                curTool=addToolLine(ev.toolName||'?', ev.args);
+                break;
+              case 'TOOL_CALL_END':
+                finishToolLine(curTool, ev.toolName, ev.args, ev.result); curTool=null;
+                break;
+            }
+          },
+          onDone(){
+            if(think){ think.remove(); think=null; }
+            curA=null; pending=null;
+          },
+          onError(err){
+            if(think){ think.remove(); think=null; }
+            const e=addAnswer(); e.classList.remove('streaming'); e.textContent='出错了: '+(err||'未知错误');
+          }
+        });
+      }catch(e){
+        if(think){ think.remove(); think=null; }
+        const er=addAnswer(); er.classList.remove('streaming'); er.textContent='出错了: '+e.message;
+      }
+      busy=false; sendBtn.disabled=false; ta.focus();
+    }
+    sendBtn.addEventListener('click',send);
+    // Enter = 换行(不再误发送);⌘/Ctrl+Enter = 显式发送
+    ta.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); send(); } });
+  })();
 </script>
 </body>
 </html>
