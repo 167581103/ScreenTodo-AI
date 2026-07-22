@@ -19,10 +19,12 @@ const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
 const DECISIONS_FILE = path.join(__dirname, 'decisions.jsonl');
 const PAUSE_FILE = path.join(__dirname, 'monitor.paused');
 // todo_write.py 接入 Obsidian vault,替代裸写 captured_todos.md。可用环境变量覆盖以适配你自己的路径。
-const TODO_WRITE = process.env.ORB_TODO_WRITE || '/Users/chancguo/WorkBuddy/Todo/scripts/todo_write.py';
-const PYTHON = process.env.ORB_PYTHON || '/Users/chancguo/.workbuddy/binaries/python/versions/3.13.12/bin/python3';
+const TODO_WRITE = process.env.ORB_TODO_WRITE || '/Users/apple/WorkBuddy/Todo/scripts/todo_write.py';
+const PYTHON = process.env.ORB_PYTHON || '/Users/apple/.workbuddy/binaries/python/versions/3.13.12/bin/python3';
 // 工作台数据层(文件即真相,不引 SQLite)
 const wsData = require('./workspace-data');
+// 工具可配置目录(内置 / 本地 / MCP / 官方连接器 四类)
+const toolCatalog = require('./tools-catalog');
 // 写入层 sink(存储可插拔,见 SINK_SPEC.md)
 const { sinkAdd } = require('./sink.js');
 
@@ -31,7 +33,10 @@ const { sinkAdd } = require('./sink.js');
 async function screenRecent(app) {
   try {
     const url = `${(CONFIG.screenpipe.apiBase || 'http://localhost:3030').replace(/\/$/, '')}/search?limit=40&content_type=ocr`;
-    const r = await fetch(url); const d = await r.json();
+    // Screenpipe API 需 Bearer 鉴权(与 daemon fetchRaw 一致)
+    const spKey = (CONFIG.screenpipe && CONFIG.screenpipe.apiKey) || '';
+    const headers = spKey ? { Authorization: `Bearer ${spKey}` } : {};
+    const r = await fetch(url, { headers }); const d = await r.json();
     const seen = new Set(); const lines = [];
     for (const it of (d.data || [])) {
       const c = it.content || {}; const a = c.app_name || '';
@@ -312,6 +317,27 @@ ipcMain.on('settings:setFilter', (e, f) => {
   } catch (err) { log('写过滤名单失败: ' + err.message); }
 });
 
+// ---------- 工具可见性:查看 Agent 可访问工具 + 配置来源开关 ----------
+// 读取实时 config.tools.sources,回填每类 enabled。读文件而非缓存 CONFIG,保证开关即时反映。
+ipcMain.handle('tools:list', () => {
+  try {
+    const c = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    return { categories: toolCatalog.getCatalog(c), defaults: toolCatalog.DEFAULT_ENABLED };
+  } catch (e) {
+    return { categories: toolCatalog.getCatalog({}), defaults: toolCatalog.DEFAULT_ENABLED };
+  }
+});
+ipcMain.on('tools:setSources', (e, sources) => {
+  try {
+    const c = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    c.tools = c.tools || {};
+    c.tools.sources = toolCatalog.normalizeSources(sources);
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(c, null, 2) + '\n');
+    const parts = Object.keys(c.tools.sources).map((k) => k + '=' + (c.tools.sources[k].enabled ? '开' : '关'));
+    log('已更新工具来源开关: ' + parts.join(' '));
+  } catch (err) { log('写工具来源开关失败: ' + err.message); }
+});
+
 // ---------- 获取当前运行进程列表(供设置页白/黑名单选择)----------
 const { execSync } = require('child_process');
 ipcMain.handle('settings:running-processes', () => {
@@ -423,6 +449,23 @@ ipcMain.handle('chat:reset', () => {
   return { ok: true };
 });
 
+// 可引用文件列表:工作目录下 .md/.txt/.jsonl,排除非用户文件
+ipcMain.handle('chat:list-files', () => {
+  try {
+    const f = fs.readdirSync(__dirname);
+    const skip = /^(\.git|node_modules|\.screenpipe|\.workbuddy|assets|prompts|sinks|orb\.html|suggestion\.html|tray-icon\.png|package-lock\.json|decisions\.jsonl|suggestions\.jsonl|sessions\.json|\.gitignore|config\.json)$/;
+    const out = [];
+    for (const fn of f) {
+      if (skip.test(fn)) continue;
+      const fp = path.join(__dirname, fn);
+      let st;
+      try { st = fs.statSync(fp); } catch (_) { continue; }
+      if (st.isFile() && /\.(md|txt|jsonl)$/i.test(fn)) out.push(fn);
+    }
+    return out;
+  } catch (e) { return []; }
+});
+
 // Markdown 渲染在主进程(Node,可安全 require;preload 在 sandbox 下不能 require 第三方)。
 // dompurify 需 DOM,主进程无 DOM → 用 marked 解析 + 轻量 sanitize(去 script/on* /javascript:)。
 let _marked = null;
@@ -451,12 +494,11 @@ function openWorkspace() {
   try { const { nativeTheme } = require('electron'); if (theme !== 'auto') nativeTheme.themeSource = theme; } catch (e) {}
   const dark = theme === 'dark' || (theme === 'auto' && (() => { try { return require('electron').nativeTheme.shouldUseDarkColors; } catch (e) { return false; } })());
   const winBg = dark ? '#151619' : '#FBFBFC';
-  const barSym = dark ? '#ECEDF0' : '#54565E';
+  // 沉浸式:仅隐藏原生标题栏,不画 38px overlay 控制条 → 交通灯直接浮在内容上方
   workspaceWin = new BrowserWindow({
     width: 1200, height: 800, minWidth: 880, minHeight: 580,
     backgroundColor: winBg, show: false,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: winBg, symbolColor: barSym, height: 38 },
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   workspaceWin.loadFile('workspace.html');

@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld('orb', {
   getFilter: () => ipcRenderer.invoke('settings:getFilter'),
   setFilter: (f) => ipcRenderer.send('settings:setFilter', f),
   getRunningProcesses: () => ipcRenderer.invoke('settings:running-processes'),
+  // 工具可见性:查看 Agent 可访问工具 + 配置来源开关
+  toolsList: () => ipcRenderer.invoke('tools:list'),
+  toolsSetSources: (s) => ipcRenderer.send('tools:setSources', s),
+  // 可引用文件列表(工作目录下 .md / .txt / .jsonl)
+  listFiles: () => ipcRenderer.invoke('chat:list-files'),
   // 对话 Agent(agui 流式 + 多会话管理)
   listSessions: () => ipcRenderer.invoke('chat:list-sessions'),
   getSession: (id) => ipcRenderer.invoke('chat:get-session', id),
