@@ -14,35 +14,23 @@
 //   def = OpenAI/DeepSeek function schema(告诉模型工具长啥样)
 //   run = async (args) => string  实际执行,返回喂回模型的文本
 
-const JUDGE_PROMPT = `你是屏幕监控 Agent。用户发来一段当前屏幕的 OCR 文本,你判读并返回与 chancguo(郭辰,用户本人)有关的待办。
+const fs = require('fs');
+const path = require('path');
 
-【捕获规则】
-只捕与 chancguo 有关的客观事实——别人对其要求、指派、等待其产出、或其自己写的 Todo。
-- 私聊中对方对 chancguo 的要求(如"提单给我""帮我看下")→捕
-- 群聊中 @chancguo 或明确指派→捕
-- 群聊"你们/大家/各位/@所有人"向全体广播且未 @chancguo → 不捕(群体任务≠个人待办)
-- 纯他人互聊、闲聊、寒暄→不捕
-- 自己写的 Todo 列表→捕
-- AI 助手(元宝/豆包)给的建议→捕;纯生成/娱乐→不捕
-- WorkBuddy 排障自语("验证健康/重启/dump脚本")→不捕
-
-【反幻觉铁律 — 违反即错】
-- @ 谁就是给谁。@ 列表没有 chancguo/郭辰,则不是指派给他 → suggest=false。
-- 禁止编造锚点:除非原文真的 @了 chancguo 或点名"郭辰/你(单数指 chancguo)",否则不许在 reason 写"指派 chancguo/需 chancguo 参与"。
-- 话题属于 chancguo 领域 ≠ 指派给他。
-
-【上下文不全时,先取上下文再判 — 重要】
-- 若文本里出现指代词("这个/它/上面那条/这条")但看不到被指代的对象,或消息明显是某个对话的片段而缺少前文,**不要凭空猜测、不要硬判**。
-- 此时应调用 get_more_context 工具,拉取该来源(app)最近的更多帧/前文,补全"这个"到底指什么,再做判断。
-- 例:看到"辰,这个今天生效了吗"却不知道"这个"指什么 → 调 get_more_context 拉企业微信前文 → 可能发现引用的是"妙思二创上线" → 据此判出准确待办。
-- 补全后仍无法确定与 chancguo 的关系,则 suggest=false,不要编造。
-
-【宁滥勿缺】确定相关时倾向捕,漏比多严重。弱信号:"记得做/回头/待跟进/ddl/跟进/复盘/对齐/评审/排期/同步"、告警/异常/决定/结论。
-
-【输出】判读完成时,输出且仅输出一份 JSON(不要额外文字):
-{"suggest":true,"items":[{"title":"简短动宾≤20字","reason":"为什么相关≤40字","context":"原文片段≤50字"}]}
-无待办则 {"suggest":false}。
-注意:需要更多上下文时调用工具,不要直接输出 JSON;信息足够时才输出 JSON。`;
+// —— Prompt 外部化 + 热更新 ——
+// prompt 存在 prompts/*.md(用户可直接编辑),按文件 mtime 判断是否变化,变了就重载 →
+// 改 prompt 无需重启,下次判读即生效。{{USER}} 占位符运行时替换为 config.user.name
+// (个人身份在 config,不入 git;prompt 模板通用,可入 git)。
+const PROMPT_DIR = path.join(__dirname, 'prompts');
+const _pc = {};
+function loadPrompt(name, userName) {
+  const file = path.join(PROMPT_DIR, name + '.md');
+  try {
+    const mt = fs.statSync(file).mtimeMs;
+    if (!_pc[name] || _pc[name].mt !== mt) _pc[name] = { mt, raw: fs.readFileSync(file, 'utf8') };
+    return _pc[name].raw.replace(/\{\{USER\}\}/g, userName || '用户');
+  } catch (e) { return '(prompt 文件缺失: ' + file + ')'; }
+}
 
 module.exports = function createAgent(CONFIG, log, tools) {
   log = log || (() => {});
@@ -50,18 +38,21 @@ module.exports = function createAgent(CONFIG, log, tools) {
   const MAX_STEPS = (CONFIG.agent && CONFIG.agent.maxSteps) || 3; // ReAct 最多轮数(含首判)
   const toolDefs = Object.values(tools).map((t) => t.def).filter(Boolean);
 
-  // 单次 LLM 调用。allowTools 决定是否带 tools(对话末轮可强制不带工具、逼它出结论)。
-  async function call(messages, allowTools) {
+  // 单次 LLM 调用。allowTools 决定是否带 tools。jsonOut=true 时末轮强制 JSON(判读用);
+  // 对话模式 jsonOut=false → 自然语言回复。
+  // onToken(可选):传了就走流式(SSE),每个 content 增量回调一次,同时累积 tool_calls 与 usage。
+  async function call(messages, allowTools, jsonOut, onToken) {
     const body = {
       model: CONFIG.deepseek.model,
       messages,
       temperature: 0.2,
+      stream: !!onToken,
     };
     if (allowTools && toolDefs.length) {
       body.tools = toolDefs;
       body.tool_choice = 'auto';
-    } else {
-      body.response_format = { type: 'json_object' }; // 末轮:强制出 JSON
+    } else if (jsonOut) {
+      body.response_format = { type: 'json_object' }; // 判读末轮:强制出 JSON
     }
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 40000);
@@ -71,13 +62,58 @@ module.exports = function createAgent(CONFIG, log, tools) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.deepseek.apiKey}` },
         body: JSON.stringify(body),
       });
-      const d = await r.json();
-      const u = d.usage || {};
+      if (!onToken) {
+        const d = await r.json();
+        const u = d.usage || {};
+        const hit = u.prompt_cache_hit_tokens || u.prompt_tokens_details?.cached_tokens || 0;
+        const total = u.prompt_tokens || 0;
+        const out = u.completion_tokens || 0;
+        if (total > 0) log(`[cache] 命中 ${hit}/${total} (${(hit / total * 100).toFixed(0)}%) 输出${out}`);
+        return { msg: d.choices?.[0]?.message || {}, usage: { hit, total, out } };
+      }
+      // —— 流式 SSE 解析 ——
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      let content = '';
+      const calls = [];
+      const ensure = (i) => { while (calls.length <= i) calls.push({}); return calls[i]; };
+      let usage = {};
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const raw of lines) {
+          const s = raw.trim();
+          if (!s.startsWith('data:')) continue;
+          const jstr = s.slice(5).trim();
+          if (jstr === '[DONE]') continue;
+          let j; try { j = JSON.parse(jstr); } catch (e) { continue; }
+          const d = j.choices?.[0]?.delta || {};
+          if (d.content) { content += d.content; onToken(d.content); }
+          if (d.tool_calls) {
+            for (const tc of d.tool_calls) {
+              const c = ensure(tc.index || 0);
+              c.id = c.id || tc.id;
+              c.name = (c.name || '') + (tc.function?.name || '');
+              c.args = (c.args || '') + (tc.function?.arguments || '');
+            }
+          }
+          if (j.usage) usage = j.usage;
+        }
+      }
+      const u = usage || {};
       const hit = u.prompt_cache_hit_tokens || u.prompt_tokens_details?.cached_tokens || 0;
       const total = u.prompt_tokens || 0;
       const out = u.completion_tokens || 0;
       if (total > 0) log(`[cache] 命中 ${hit}/${total} (${(hit / total * 100).toFixed(0)}%) 输出${out}`);
-      return { msg: d.choices?.[0]?.message || {}, usage: { hit, total, out } };
+      const msg = {
+        content,
+        tool_calls: calls.length ? calls.map(c => ({ id: c.id, function: { name: c.name, arguments: c.args || '{}' } })) : undefined,
+      };
+      return { msg, usage: { hit, total, out } };
     } finally { clearTimeout(t); }
   }
 
@@ -89,13 +125,42 @@ module.exports = function createAgent(CONFIG, log, tools) {
     }
   }
 
-  // 有界 ReAct 循环:messages 已含 system + 首条 user。返回最终 JSON 判读。
-  async function react(messages) {
+  // 有界 ReAct 循环:messages 已含 system + 首条 user。
+  // jsonOut=true(判读)→ 返回解析后的 todo JSON;jsonOut=false(对话)→ 返回 {reply, ...}。
+  // emit(可选):agui 事件回调,用于流式交互(仅对话且传入时启用)。
+  async function react(messages, jsonOut, emit) {
     let steps = 0;
     const usage = { hit: 0, total: 0, out: 0, calls: 0 };
+    // 注:曾用 SSE 流式,但 DeepSeek 流式 + tool_calls 组合下 content 解析不稳(工具轮后返回空)。
+    // 改为非流式(已验证稳定),拿到完整 content 后一次性作气泡 emit。可靠优先于逐字流。
+    const streamable = false;
+    if (emit) emit('RUN_STARTED', { runId: 'run_' + Date.now(), threadId: 'chat' });
     while (steps < MAX_STEPS) {
-      const lastStep = steps === MAX_STEPS - 1; // 末轮不再给工具,强制出 JSON
-      const { msg, usage: u } = await call(messages, !lastStep);
+      const lastStep = steps === MAX_STEPS - 1; // 末轮不再给工具,逼出结论
+      let msg, u;
+      if (streamable) {
+        // 延迟发 START:只在真收到第一个文本 token 才开气泡,避免"纯工具调用轮"冒空气泡
+        const msgId = 'm_' + Date.now() + '_' + steps;
+        let started = false;
+        const onTok = (delta) => {
+          if (!delta) return;
+          if (!started) { started = true; emit('TEXT_MESSAGE_START', { messageId: msgId }); }
+          emit('TEXT_MESSAGE_CONTENT', { messageId: msgId, delta });
+        };
+        const res = await call(messages, !lastStep, jsonOut, onTok);
+        msg = res.msg; u = res.usage;
+        if (started) emit('TEXT_MESSAGE_END', { messageId: msgId });
+      } else {
+        const res = await call(messages, !lastStep, jsonOut);
+        msg = res.msg; u = res.usage;
+        // 非流式对话:有文本且非工具轮 → 一次性发气泡(模拟 START/CONTENT/END)
+        if (emit && msg.content && !(msg.tool_calls && msg.tool_calls.length)) {
+          const msgId = 'm_' + Date.now() + '_' + steps;
+          emit('TEXT_MESSAGE_START', { messageId: msgId });
+          emit('TEXT_MESSAGE_CONTENT', { messageId: msgId, delta: msg.content });
+          emit('TEXT_MESSAGE_END', { messageId: msgId });
+        }
+      }
       usage.hit += u.hit; usage.total += u.total; usage.out += u.out; usage.calls++;
       steps++;
 
@@ -106,38 +171,74 @@ module.exports = function createAgent(CONFIG, log, tools) {
         for (const c of calls) {
           const name = c.function?.name;
           let args = {}; try { args = JSON.parse(c.function?.arguments || '{}'); } catch (e) {}
+          if (emit) emit('TOOL_CALL_START', { toolCallId: c.id, toolName: name || '?', args });
           let result = '(工具不存在)';
           if (tools[name]) {
             try { result = await tools[name].run(args); } catch (e) { result = '工具执行出错: ' + e.message; }
           }
           log(`[tool] ${name}(${JSON.stringify(args).slice(0, 80)}) → ${String(result).length}字`);
+          if (emit) emit('TOOL_CALL_END', { toolCallId: c.id, toolName: name || '?', args, result: String(result).slice(0, 4000) });
           messages.push({ role: 'tool', tool_call_id: c.id, content: String(result).slice(0, 4000) });
         }
-        continue; // 带着工具结果再判
+        // 对话模式:工具结果拿到后,追一条指令逼模型基于结果给自然语言答复
+        // (否则 DeepSeek 有时在工具轮后直接返回空 content,导致"调了工具就没下文")
+        if (!jsonOut) messages.push({ role: 'user', content: '基于以上工具结果,用中文简洁回答我最初的问题。不要再调用工具,直接给结论。' });
+        continue;
       }
-      // 没调工具:这是最终判读
-      const j = safeParse(msg.content);
-      j._steps = steps; j._usage = usage;
-      return j;
+      // 没调工具:最终结论
+      if (jsonOut) {
+        const j = safeParse(msg.content);
+        j._steps = steps; j._usage = usage;
+        return j;
+      }
+      const reply = (msg.content || '').trim();
+      if (reply) return { reply, _steps: steps, _usage: usage };
+      // 对话模式拿到空回复(常见于:上一轮吐了过渡语+调工具,拿到结果后模型以为已说完)。
+      // 追一条明确指令,逼它基于已有信息给用户一个完整答复,而不是留空。
+      if (!lastStep) {
+        messages.push({ role: 'user', content: '请基于上面的信息,直接给我一个完整的回答(不要再调用工具)。' });
+        continue;
+      }
+      return { reply: '我查了下,没有找到相关内容。要不换个说法或告诉我更具体的信息?', _steps: steps, _usage: usage };
     }
-    return { suggest: false, _steps: steps, _usage: usage };
+    return jsonOut ? { suggest: false, _steps: steps, _usage: usage } : { reply: '我这边没能得出结论,要不再说一次?', _steps: steps, _usage: usage };
   }
 
-  // 入口一:后台 tick 自动判读屏幕文本
+  const userName = (CONFIG.user && CONFIG.user.name) || 'chancguo(郭辰)';
+
+  // 前置闸门:轻量场景判。只判"这屏是什么场景、是否可能向 user 派活",不找具体待办。
+  // 输入可只喂精简特征(头部片段),单次无工具调用,system prompt 固定高缓存 → 很便宜。
+  // 返回 { scene, deliver, why }。deliver=false 的帧直接丢,不进重判读(省大头 token)。
+  async function classifyScene(sceneText) {
+    try {
+      const { msg } = await call([
+        { role: 'system', content: loadPrompt('scene', userName) },
+        { role: 'user', content: '这一屏的内容:\n' + sceneText },
+      ], false, true); // 无工具 + 强制 JSON
+      const j = safeParse(msg.content);
+      return { scene: j.scene || '未知', deliver: j.deliver !== false, why: j.why || '' };
+    } catch (e) {
+      // 场景判失败 → 不阻断,默认放行进重判读(宁可多花,不漏)
+      return { scene: '未知', deliver: true, why: '场景判失败,放行: ' + e.message };
+    }
+  }
+
+  // 入口一:后台 tick 自动判读屏幕文本 → 返回 todo JSON。每次实时载入 prompts/judge.md(热更新)
   async function runOnScreen(screenText) {
     return react([
-      { role: 'system', content: JUDGE_PROMPT },
+      { role: 'system', content: loadPrompt('judge', userName) },
       { role: 'user', content: '当前屏幕内容:\n' + screenText },
-    ]);
+    ], true);
   }
 
-  // 入口二:前台对话(以后接 AGUI)。history 为既往对话 messages。
-  async function runOnChat(userMsg, history) {
-    const messages = [{ role: 'system', content: JUDGE_PROMPT }];
+  // 入口二:前台对话 → 返回自然语言回复。每次实时载入 prompts/chat.md(热更新)
+  // emit(可选):传入则启用 agui 流式事件(主进程转发给渲染层)
+  async function runOnChat(userMsg, history, emit) {
+    const messages = [{ role: 'system', content: loadPrompt('chat', userName) }];
     if (Array.isArray(history)) messages.push(...history);
     messages.push({ role: 'user', content: userMsg });
-    return react(messages);
+    return react(messages, false, emit);
   }
 
-  return { runOnScreen, runOnChat, PROMPT: JUDGE_PROMPT };
+  return { runOnScreen, runOnChat, classifyScene, get PROMPT() { return loadPrompt('judge', userName); } };
 };
