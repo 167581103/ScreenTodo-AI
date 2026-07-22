@@ -23,6 +23,8 @@ const TODO_WRITE = process.env.ORB_TODO_WRITE || '/Users/chancguo/WorkBuddy/Todo
 const PYTHON = process.env.ORB_PYTHON || '/Users/chancguo/.workbuddy/binaries/python/versions/3.13.12/bin/python3';
 // 工作台数据层(文件即真相,不引 SQLite)
 const wsData = require('./workspace-data');
+// 写入层 sink(存储可插拔,见 SINK_SPEC.md)
+const { sinkAdd } = require('./sink.js');
 
 let tray = null;
 let suggWin = null;
@@ -42,40 +44,35 @@ function log(msg) {
   try { fs.appendFileSync(LOG_PATH, line + '\n'); } catch (e) {}
 }
 
-// ---------- 落地待办(接入 Obsidian todo vault) ----------
+// ---------- 落地待办(通过写入层 sink,存储可插拔) ----------
 function logDecision(id, decision) {
   try { fs.appendFileSync(DECISIONS_FILE, JSON.stringify({ id, decision, ts: new Date().toISOString() }) + '\n'); } catch (e) {}
 }
-function addTodo(item) {
+async function addTodo(item) {
   if (item._id) logDecision(item._id, 'accepted');
-  const ts = new Date().toLocaleString('zh-CN');
-  // 构造 todo_write.py apply 的 plan JSON
-  const plan = {
-    tasks: [{
-      title: item.title,
-      note: `来源:${(item.context || '').replace(/\n/g, ' ').slice(0, 120)} | ${ts} (orb)`,
-      // 不指定 project → 写入 日常/ 目录;后续可从 reason/context 推断项目名归类到 项目/
-    }]
+  const todo = {
+    title: item.title,
+    reason: item.reason || '',
+    context: item.context || '',
+    raw: item.raw || '',
+    apps: item.apps || [],
+    time: new Date().toISOString(),
   };
-  try {
-    const tmpPlan = path.join(__dirname, `.tmp_plan_${Date.now()}.json`);
-    fs.writeFileSync(tmpPlan, JSON.stringify(plan));
-    execFileSync(PYTHON, [TODO_WRITE, 'apply', '--plan', tmpPlan], {
-      timeout: 5000, stdio: ['pipe', 'pipe', 'pipe']
-    });
-    fs.unlinkSync(tmpPlan);
+  let ok = false;
+  try { ok = await sinkAdd(todo); } catch (e) { log('sink 写入异常: ' + e.message); }
+  if (ok) {
     stats.added++;
-    log('已写入 vault: ' + item.title);
-  } catch (e) {
-    log('todo_write.py 失败,回退到本地文件: ' + e.message.slice(0, 120));
-    // 回退:todo_write 挂了就写到本地 captured_todos.md(不丢数据)
+    log('已写入(sink): ' + item.title);
+  } else {
+    // 回退:sink 失败就写本地 captured_todos.md(不丢数据)
+    const ts = new Date().toLocaleString('zh-CN');
     const line = `- [ ] ${item.title}  <!-- 来源:${(item.context || '').replace(/\n/g, ' ').slice(0, 60)} | ${ts} -->\n`;
-    if (!fs.existsSync(TODO_PATH)) {
-      fs.writeFileSync(TODO_PATH, '# 屏幕捕获的待办(回退)\n\n> todo_write.py 不可用时的本地回退。\n\n');
-    }
-    fs.appendFileSync(TODO_PATH, line);
-    stats.added++;
-    log('回退写入: ' + item.title);
+    try {
+      if (!fs.existsSync(TODO_PATH)) fs.writeFileSync(TODO_PATH, '# 屏幕捕获的待办(回退)\n\n> sink 不可用时的本地回退。\n\n');
+      fs.appendFileSync(TODO_PATH, line);
+      stats.added++;
+      log('sink 失败,回退写入本地: ' + item.title);
+    } catch (e) { log('回退写入也失败: ' + e.message); }
   }
   updateTray();
 }

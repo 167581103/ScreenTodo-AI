@@ -4,19 +4,27 @@
 
 数据全部留在本地（文件即真相，不用数据库），只有屏幕文本片段会发给 LLM 做判断。
 
-## 架构
+## 三层架构
 
-三个进程，由 `supervisor.sh` 守护、自愈：
+按能力分层，每层只靠数据契约通信，可独立替换：
 
-- **Screenpipe**（外部依赖）：持续录屏 + OCR，提供 `localhost:3030` 查询接口。
-- **daemon.js**：判断引擎。滑动窗口取最近屏幕文本 → DeepSeek 判读 → 命中写 `suggestions.jsonl`。
-- **main.js**（Electron）：状态栏图标 + 建议弹窗 + 工作台窗口。采纳/忽略写 `decisions.jsonl`，采纳的写入 Obsidian vault。
+- **① 录制层**：Screenpipe 录屏 OCR → 滑动窗口取最近帧文本。（换截屏/剪贴板等输入源只动这层）
+- **② 语义层**（`daemon.js`，唯一花 token）：上下文工程 + DeepSeek 判读 + 机械去重 → 命中写 `suggestions.jsonl`。
+- **③ 写入层**（`sink.js` + `sinks/`，**可插拔**）：把采纳的 todo 落地到任意存储。见 [SINK_SPEC.md](./SINK_SPEC.md)。
 
 ```
-Screenpipe(OCR) ──► daemon.js(判读) ──► suggestions.jsonl
-                                              │
-                          Electron(弹窗/工作台) ◄┘ ──► Obsidian vault
+录制层(Screenpipe) ─帧文本─► 语义层(daemon) ─todo─► 写入层(sink 适配器)
+                                                       ├─ 本地 vault(默认)
+                                                       ├─ webhook / API
+                                                       └─ 你自己的存储
 ```
+
+**写入层可插拔** —— 三档：
+1. 本地方案（默认）：`sinks/local-vault.js`，写 Obsidian vault + 文件系统，带去重。
+2. 官方连接器：`sinks/webhook.js` 等（Notion / Microsoft To Do / 滴答 陆续补）。
+3. 自行接入：复制 `sinks/template.js`，对齐 `SINK_SPEC.md` 协议即可。
+
+Electron 侧另有状态栏图标 + 建议弹窗 + 工作台窗口（采纳/忽略写 `decisions.jsonl`）。
 
 ## 成本优化（token）
 

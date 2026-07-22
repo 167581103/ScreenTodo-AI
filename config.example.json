@@ -8,6 +8,10 @@
     "apiBase": "http://localhost:3030",
     "searchLimit": 300
   },
+  "sink": {
+    "add": "node sinks/local-vault.js add",
+    "find": "node sinks/local-vault.js find"
+  },
   "monitor": {
     "intervalSec": 5,
     "todoFile": "captured_todos.md",

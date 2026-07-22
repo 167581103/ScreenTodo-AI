@@ -4,6 +4,7 @@
 // 第 N+1 轮请求的整个前缀(历史对话)都被 DeepSeek prefix cache 命中,只有本轮增量 miss → 命中率趋近 98%。
 const fs = require('fs');
 const path = require('path');
+const { sinkFind } = require('./sink.js'); // 写入层去重:查 todo 是否已存在于配置的存储
 
 const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
@@ -123,7 +124,7 @@ async function seedBaseline() {
       lastWinHash = cheapHash(screenText); // 记录基线哈希,避免首个 tick 立刻重判同一屏
       const j = await judge([{ role: 'system', content: PROMPT }, { role: 'user', content: screenText }]);
       log('[baseline] 载入屏幕 ' + inc.lines.length + ' 帧 ' + screenText.length + '字 | suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
-      handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000) });
+      await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000) });
     } else {
       log('[baseline] 无可见屏幕内容,跳过');
     }
@@ -189,7 +190,7 @@ async function judge(messages) {
   } finally { clearTimeout(t); }
 }
 
-function handleSuggest(j, meta) {
+async function handleSuggest(j, meta) {
   let items = [];
   if (Array.isArray(j.items)) items = j.items;
   else if (j.suggest && j.title) items = [j];
@@ -197,12 +198,15 @@ function handleSuggest(j, meta) {
   for (const it of items) {
     const key = (it.title || '').trim();
     if (!key) continue;
-    if (isDupTitle(key)) { log('[dedup] 近似去重跳过: ' + key); continue; }
+    // 去重两层:① 本会话内存(titleSeen,免费快) ② 写入层存储(sinkFind,查 vault/Notion 等已有)
+    if (isDupTitle(key)) { log('[dedup] 本会话去重跳过: ' + key); continue; }
+    let existsInStore = false;
+    try { existsInStore = await sinkFind({ title: key }); } catch (e) {}
+    if (existsInStore) { log('[dedup] 存储已有,跳过: ' + key); titleSeen.add(key); continue; }
     titleSeen.add(key);
     const rec = {
       id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       item: it,
-      // 详情页字段:来源 app、触发时更宽的原始屏幕文本(供"思考过程"展示)
       apps: meta?.apps || [],
       raw: meta?.raw || '',
       ts: new Date().toISOString(),
@@ -227,14 +231,36 @@ async function tick() {
     log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 帧 ${screenText.length}字` + (inc.truncated ? ' [截断]' : '') + (inc.apps.includes('企业微信') ? ' [群聊]' : ''));
     const j = await judge([{ role: 'system', content: PROMPT }, { role: 'user', content: screenText }]);
     log('[judge] suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
-    handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000) });
+    await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000) });
   } catch (e) {
     lastTs = savedLastTs;
     log('tick 错误: ' + e.message);
   }
 }
 
-// 启动预载入已存在标题,避免 baseline 把屏幕上还停着的历史待办又弹一遍
+// Obsidian vault 日常/ 目录:接入真正的 todo 文件系统做机械去重(可环境变量覆盖)
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/chancguo/Todo/todo/日常';
+
+// 扫描 vault 所有任务标题(- [ ]/- [x]/- [-]),加入 titleSeen。
+// 这样"我早已记过(甚至已完成)的事"再出现在屏幕上不会重复弹。
+function loadVaultTitles() {
+  try {
+    if (!fs.existsSync(VAULT_DAILY)) return 0;
+    let n = 0;
+    for (const f of fs.readdirSync(VAULT_DAILY)) {
+      if (!f.endsWith('.md')) continue;
+      let text; try { text = fs.readFileSync(path.join(VAULT_DAILY, f), 'utf8'); } catch (e) { continue; }
+      for (const line of text.split('\n')) {
+        // - [ ] / - [x] / - [-] 标题（截掉 completion/cancelled/emoji 尾注）
+        const m = line.match(/^- \[[ x\-]\] (.+?)(?:\s*\[(?:completion|cancelled)::.*?\]|\s*✅.*|\s*<!--.*)?\s*$/);
+        if (m && m[1].trim()) { titleSeen.add(m[1].trim()); n++; }
+      }
+    }
+    return n;
+  } catch (e) { return 0; }
+}
+
+// 启动预载入已存在标题 + vault 全量任务,避免重复弹已记录/已完成的事
 function prefillTitleSeen() {
   try {
     if (fs.existsSync(SUGG_FILE)) {
@@ -250,7 +276,8 @@ function prefillTitleSeen() {
         if (m) titleSeen.add(m[1].trim());
       }
     }
-    log('[prefill] 已载入 ' + titleSeen.size + ' 个历史标题用于去重');
+    const vaultN = loadVaultTitles();
+    log('[prefill] 已载入 ' + titleSeen.size + ' 个去重标题(含 vault ' + vaultN + ' 条任务)');
   } catch (e) { log('[prefill] 失败: ' + e.message); }
 }
 
@@ -259,9 +286,11 @@ process.on('uncaughtException', (e) => log('UNCAUGHT: ' + (e && e.stack || e)));
 process.on('unhandledRejection', (e) => log('UNHANDLED: ' + (e && e.stack || e)));
 
 (async () => {
-  log('=== orb-daemon 启动 (interval=' + CONFIG.monitor.intervalSec + 's, 多轮对话+baseline模式) ===');
+  log('=== orb-daemon 启动 (滑窗+机械去重接入vault) ===');
   prefillTitleSeen();
   await seedBaseline();
   tick();
   setInterval(tick, interval);
+  // 每 60s 重扫 vault:采纳后写入的新任务、或手动加的待办,也纳入去重
+  setInterval(loadVaultTitles, 60000);
 })();
