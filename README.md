@@ -1,58 +1,139 @@
-# Claw — 屏幕感知的待办捕获 Agent
+<p align="center">
+  <img src="assets/logo-dark.svg" width="80" alt="Orbit logo" />
+</p>
 
-一个常驻 macOS 的本地 Agent：持续读取屏幕 OCR，用 LLM 判断哪些内容是「与你有关、需要跟进的待办」，主动弹窗建议，采纳后写入你的 Obsidian todo 仓库。
+<h3 align="center">Orbit</h3>
+<p align="center">
+  A local-first ReAct AI agent that watches your screen,<br/>
+  figures out what needs your attention,<br/>
+  and writes it into your knowledge base.
+</p>
 
-数据全部留在本地（文件即真相，不用数据库），只有屏幕文本片段会发给 LLM 做判断。
+<p align="center">
+  <img src="https://img.shields.io/badge/Electron-32-47848F?logo=electron&logoColor=white" alt="Electron" />
+  <img src="https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white" alt="Node.js" />
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
+</p>
 
-## 三层架构
+---
 
-按能力分层，每层只靠数据契约通信，可独立替换：
+## What It Does
 
-- **① 录制层**：Screenpipe 录屏 OCR → 滑动窗口取最近帧文本。（换截屏/剪贴板等输入源只动这层）
-- **② 语义层**（`daemon.js`，唯一花 token）：上下文工程 + DeepSeek 判读 + 机械去重 → 命中写 `suggestions.jsonl`。
-- **③ 写入层**（`sink.js` + `sinks/`，**可插拔**）：把采纳的 todo 落地到任意存储。见 [SINK_SPEC.md](./SINK_SPEC.md)。
+You get hundreds of messages every day across Slack, WeChat, and email.
+Important action items get buried. Orbit sits in your macOS menu bar and:
+
+1. **Continuously observes** your screen via local OCR (Screenpipe)
+2. **Reasons autonomously** about what needs follow-up using a ReAct agent
+3. **Surfaces suggestions** in a native notification
+4. **Writes structured todos** to your Obsidian vault when you accept
+
+Everything runs locally — only anonymized screen text snippets leave your machine (for LLM inference).
+
+## Architecture
 
 ```
-录制层(Screenpipe) ─帧文本─► 语义层(daemon) ─todo─► 写入层(sink 适配器)
-                                                       ├─ 本地 vault(默认)
-                                                       ├─ webhook / API
-                                                       └─ 你自己的存储
+Recording Layer          Reasoning Layer           Writing Layer
+(Screenpipe)             (ReAct Agent)             (Pluggable Adapters)
+
+  OCR frames  ────────▶  Scene classifier  ───▶   ┌─ Obsidian vault (default)
+                         ↓ (70% early discard)    ├─ Webhook / REST API
+                         ReAct judge + tools       └─ Custom adapter (20 LOC)
+                         ↓
+                         Multi-layer dedup
+                         ↓
+                         suggestions.jsonl
 ```
 
-**写入层可插拔** —— 三档：
-1. 本地方案（默认）：`sinks/local-vault.js`，写 Obsidian vault + 文件系统，带去重。
-2. 官方连接器：`sinks/webhook.js` 等（Notion / Microsoft To Do / 滴答 陆续补）。
-3. 自行接入：复制 `sinks/template.js`，对齐 `SINK_SPEC.md` 协议即可。
+Three layers, decoupled by data contracts — swap any layer independently.
 
-Electron 侧另有状态栏图标 + 建议弹窗 + 工作台窗口（采纳/忽略写 `decisions.jsonl`）。
+## Quick Start
 
-## 成本优化（token）
+```bash
+# 1. Install & start Screenpipe (requires Chinese OCR)
+#    https://screenpi.pe/
 
-- **系统 Prompt 固定**（~370 token）→ prompt cache 稳定 98% 命中。
-- **滑动窗口**：每次只取最近 6 帧屏幕文本，封顶 ~4500 字（≈2600 token），不累积对话历史。
-- **静止跳过**：屏幕内容哈希未变则不调用 API（挂机零消耗）。
-- 稳态单次调用 ≈ 2500 token，相比"全量历史多轮"降约 96%。
+# 2. Clone and install
+git clone https://github.com/167581103/ScreenTodo-AI.git
+cd ScreenTodo-AI
+npm install
 
-## 上手
+# 3. Configure
+cp config.example.json config.json
+# → edit config.json: add your DeepSeek API key, set your name
 
-1. 装并启动 [Screenpipe](https://screenpi.pe/)（需开中文 OCR：`screenpipe record -l chinese`）。
-2. `npm install`
-3. `cp config.example.json config.json`，填入 DeepSeek API key。
-4. `bash supervisor.sh &` 启动整套栈（常驻、自愈）。
-5. 状态栏出现圆环图标；`⌘⇧W` 或点图标菜单打开工作台。
+# 4. Launch the full stack (daemon + Electron UI)
+bash supervisor.sh &
 
-### 可选环境变量
+# 5. Orbit icon appears in your macOS menu bar.
+#    Cmd+Shift+W → open the workspace dashboard.
+```
 
-- `ORB_TODO_WRITE`：todo 写入脚本路径
-- `ORB_PYTHON`：Python 解释器路径
-- `ORB_VAULT_DAILY`：Obsidian vault 日常目录
+## Technical Highlights
 
-## 工作台
+### ReAct Agent with Tool Use
+A bounded ReAct loop (max 3 reasoning steps) lets the LLM autonomously call `get_more_context` when information is insufficient — no hardcoded fallback paths.
 
-- 左侧按状态分：全部 / 待处理 / 已采纳 / 已忽略
-- 点卡片看详情：来源 app、判断理由、触发片段、原始屏幕上下文、时间
-- 底部输入框可手动加待办
+### Two-Stage Cost-Optimized Inference
+- **Stage 1**: Lightweight scene classifier (`deliver?`) routes 70%+ of frames to early discard
+- **Stage 2**: Full ReAct reasoning only on actionable screens
+- Result: ~96% token cost reduction vs. a naive "send everything" approach
 
-## 隐私
+### Geometric Window Segmentation
+OCR produces flat text from multiple windows — names from app A get misattributed to messages in app B. Solved with a **union-find spatial clustering algorithm** using normalized OCR coordinates. Zero hallucination risk, purely geometric.
 
-`config.json`（含 API key）、`suggestions.jsonl` / `decisions.jsonl` / `captured_todos.md`（含真实屏幕内容）均在 `.gitignore` 中，不会入库。
+### Multi-Layer Deduplication
+| Layer | Strategy |
+|-------|----------|
+| 1 — Content fingerprint | Exact hash of trigger text |
+| 2 — Fuzzy matching | Longest Common Subsequence (LCS) |
+| 3 — Knowledge base cross-reference | Scan vault for existing/completed todos |
+
+### Pluggable Write Architecture
+stdin/stdout JSON protocol. Swap Obsidian for Notion / Jira / Slack by implementing two actions: `add` and `find`. See [SINK_SPEC.md](./SINK_SPEC.md).
+
+### Prompt Hot-Reload
+Edit `prompts/judge.md` or `prompts/chat.md` — changes take effect on the next inference call. No restart required.
+
+## Configuration
+
+```jsonc
+{
+  "user": { "name": "Your Name" },
+  "deepseek": {
+    "apiBase": "https://api.deepseek.com",
+    "apiKey": "sk-...",
+    "model": "deepseek-chat"
+  },
+  "monitor": {
+    "intervalSec": 5,      // polling interval
+    "winFrames": 6,        // sliding window frames
+    "winMaxChars": 4500    // max chars per inference
+  },
+  "filter": {
+    "denyApps": [],        // apps to ignore
+    "allowApps": []        // apps to watch (empty = all)
+  }
+}
+```
+
+Full schema: [config.example.json](./config.example.json) · Sink protocol: [SINK_SPEC.md](./SINK_SPEC.md)
+
+## Optional Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ORB_TODO_WRITE` | `Todo/scripts/todo_write.py` | Path to todo writer script |
+| `ORB_PYTHON` | managed Python 3.13 | Python interpreter |
+| `ORB_VAULT_DAILY` | `Todo/todo/日常` | Obsidian daily vault path |
+| `ORB_SP_BIN` | `screenpipe` | Screenpipe binary path |
+| `ORB_WEBHOOK_URL` | — | Webhook sink target URL |
+
+## Privacy
+
+- `config.json` (API keys), `suggestions.jsonl` / `decisions.jsonl` (screen content) are **gitignored**
+- Screen recordings stay on disk — only OCR text is sent to the LLM
+- All data lives on your machine. No cloud database, no telemetry.
+
+## License
+
+MIT
