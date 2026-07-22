@@ -72,15 +72,17 @@
 
   .nav-h{font-size:11px;font-weight:500;color:var(--ink-3);padding:8px 10px 4px}
   .tab{
-    display:flex;align-items:center;gap:9px;padding:7px 12px;border-radius:999px;
-    font-size:13px;color:var(--ink-2);cursor:pointer;position:relative;
+    display:flex;align-items:center;gap:9px;height:34px;padding:0 12px;border-radius:12px;
+    font-size:13px;font-weight:400;color:var(--ink-2);cursor:pointer;position:relative;
     transition:background .14s var(--e-out),color .14s var(--e-out);
     -webkit-app-region:no-drag;
   }
   .tab .lbl{flex:1}
   .tab .cnt{font-size:11px;font-variant-numeric:tabular-nums;color:var(--ink-3);min-width:18px;text-align:right}
-  .tab:hover{background:color-mix(in srgb,var(--ink) 6%,transparent);color:var(--ink)}
-  .tab.active{color:var(--ink);background:color-mix(in srgb,var(--ink) 12%,transparent)}
+  .tab:hover{background:color-mix(in srgb,var(--ink) 5%,transparent);color:var(--ink)}
+  /* 选中态:不用暗色块,靠 图标加粗 + 文字加粗 表达。固定 height 防加粗撑高。 */
+  .tab.active{color:var(--ink);font-weight:600;background:none}
+  .tab.active svg{stroke-width:2.4}
   .tab.active .cnt{color:var(--ink-2)}
 
   /* 侧栏带图标 tab(对话/设置)统一图标尺寸;设置 tab 推到最底部 */
@@ -182,6 +184,8 @@
     font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,monospace;
     white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;
   }
+  /* 全局文本选择光标(功能性,到处一致):可选文本区统一 IBeam。氛围性的跟随小圈仅对话区。 */
+  .row .tt,.db,.rawbox,.answer,.msg,.detail .kv,.stline{cursor:text}
   .stline{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:500}
   .stline::before{content:"";width:8px;height:8px;border-radius:50%}
   .stline.acc{color:var(--ok)} .stline.acc::before{background:var(--ok)}
@@ -196,10 +200,10 @@
   .chat-sec{padding:0 0 4px}
   .chat-sec-label{font-size:11px;font-weight:500;color:var(--ink-3);padding:8px 10px 4px;user-select:none}
   .session-list{display:flex;flex-direction:column;gap:3px;padding:0 4px}
-  /* 会话 = 胶囊。选中只用深色背景,不用左侧竖条 */
-  .session-item{position:relative;display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;cursor:pointer;font-size:12.5px;color:var(--ink-2);transition:background .14s var(--e-out),color .14s var(--e-out)}
-  .session-item:hover{background:color-mix(in srgb,var(--ink) 6%,transparent);color:var(--ink)}
-  .session-item.active{color:var(--ink);background:color-mix(in srgb,var(--ink) 12%,transparent)}
+  /* 会话项:R 角矩形(非全胶囊)。选中=文字加粗 + 很淡的底(列表需区分当前项,纯加粗不够)。固定高度防撑高。 */
+  .session-item{position:relative;display:flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:11px;cursor:pointer;font-size:12.5px;font-weight:400;color:var(--ink-2);transition:background .14s var(--e-out),color .14s var(--e-out)}
+  .session-item:hover{background:color-mix(in srgb,var(--ink) 5%,transparent);color:var(--ink)}
+  .session-item.active{color:var(--ink);font-weight:600;background:color-mix(in srgb,var(--ink) 6%,transparent)}
   .session-item.dragging{opacity:.5;background:var(--panel);cursor:grabbing}
   /* 拖拽插入指示线:细 accent 线,靠伪元素画在项的上/下边缘 */
   .session-item.drop-above,.session-item.drop-below{overflow:visible}
@@ -301,21 +305,23 @@
   .answer th,.answer td{border:1px solid var(--line);padding:6px 10px;text-align:left}
   .answer th{background:color-mix(in srgb,var(--ink) 5%,transparent);font-weight:600}
   /* 工具调用指示 */
-  /* 工具行:可读的"做了什么"——头部 [动作·摘要] + 可展开的详情(参数/结果)。让 Agent 行动过程可信、可查。 */
-  .tool-line{align-self:flex-start;max-width:88%;font-size:11.5px;color:var(--ink-2);background:color-mix(in srgb,var(--ink) 4%,transparent);border:1px solid var(--line);border-radius:10px;margin:3px 0;overflow:hidden;transition:background .14s var(--e-out)}
-  .tool-line .th{display:flex;align-items:center;gap:7px;padding:6px 11px;cursor:pointer;user-select:none}
-  .tool-line .ic{width:14px;height:14px;flex:none;display:flex;align-items:center;justify-content:center}
-  .tool-line .ic svg{width:14px;height:14px}
-  .tool-line .verb{font-weight:500;color:var(--ink);white-space:nowrap}
-  .tool-line .sum{color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
-  .tool-line .chev{flex:none;color:var(--ink-3);transition:transform .16s var(--e-out);font-size:10px}
-  .tool-line.open .chev{transform:rotate(90deg)}
-  .tool-line .detail{max-height:0;overflow:hidden;transition:max-height .2s var(--e-out);border-top:1px solid transparent}
-  .tool-line.open .detail{max-height:260px;overflow:auto;border-top-color:var(--line)}
-  .tool-line .detail .kv{padding:7px 11px;font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;line-height:1.5;color:var(--ink-2);white-space:pre-wrap;word-break:break-word}
+  /* 工具行:极简一行"它做了什么"——无卡片、无边框,一行灰字。点 chev 才展开细节。 */
+  .tool-line{align-self:flex-start;max-width:92%;font-size:12px;color:var(--ink-3);margin:1px 0}
+  .tool-line .th{display:inline-flex;align-items:center;gap:6px;padding:2px 2px;cursor:pointer;user-select:none;max-width:100%}
+  .tool-line .ic{flex:none;font-size:11px;line-height:1;color:var(--ink-3)}
+  .tool-line.running .ic{animation:tl-pulse 1s ease-in-out infinite}
+  @keyframes tl-pulse{0%,100%{opacity:.3}50%{opacity:1}}
+  .tool-line .verb{color:var(--ink-2);white-space:nowrap}
+  .tool-line .sum{color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .tool-line .chev{flex:none;color:var(--ink-3);font-size:8px;opacity:.5;transition:transform .16s var(--e-out),opacity .14s}
+  .tool-line:hover .chev{opacity:1}
+  .tool-line.open .chev{transform:rotate(90deg);opacity:1}
+  .tool-line .detail{display:none;margin:4px 0 2px;border:1px solid var(--line);border-radius:9px;background:var(--panel);max-height:220px;overflow:auto}
+  .tool-line.open .detail{display:block}
+  .tool-line .detail .kv{padding:7px 11px;font-size:11.5px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap;word-break:break-word;border-bottom:1px solid var(--line)}
+  .tool-line .detail .kv:last-child{border-bottom:none}
+  .tool-line .detail .kv b{color:var(--ink-3);font-weight:500;margin-right:6px}
   .tool-line .detail .kv b{color:var(--ink-3);font-weight:400}
-  .tool-line.running .ic svg{animation:spin 1s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
   /* ── chat input:参考 uiverse plastic-parrot,统一胶囊壳,内嵌 mic/输入/发送 ── */
   .chat-input{padding:14px 20px 18px;border-top:1px solid var(--line);flex:none;background:var(--bg)}
   .chat-bar{
@@ -878,6 +884,10 @@
     else { const g = document.createElement('div'); g.className = 'chat-glow'; g.id = 'chat-glow'; body.appendChild(g); }
   }
 
+  // 工具名 → 人话动作(模块级,实时渲染与历史重放共用)。未知工具降级为原名。
+  const TOOL_VERB={ list_todos:'查看待办', search_captured:'搜索记忆', get_more_context:'查看屏幕上下文', save_todo:'记录待办' };
+  function toolVerb(name){ return TOOL_VERB[name] || name; }
+
   // 每会话草稿存储(sid → 未发送文本)。切换会话时保存旧、恢复新
   const _drafts = {};
   let _curSid = null;
@@ -900,7 +910,11 @@
         if (m.role === 'user') {
           const d = document.createElement('div'); d.className = 'msg u'; d.textContent = m.content; body.appendChild(d);
         } else if (m.role === 'tool') {
-          const d = document.createElement('div'); d.className = 'tool-line'; d.textContent = '✓ ' + m.content; body.appendChild(d);
+          // 历史工具行:只存了工具名,渲染成与实时一致的极简行(无详情可展开)
+          const d = document.createElement('div'); d.className = 'tool-line';
+          d.innerHTML = '<div class="th" style="cursor:default"><span class="ic">✓</span><span class="verb">'
+            + esc(typeof toolVerb === 'function' ? toolVerb(m.content) : m.content) + '</span></div>';
+          body.appendChild(d);
         } else {
           const d = document.createElement('div'); d.className = 'answer'; d.innerHTML = rmd(m.content); body.appendChild(d);
         }
@@ -1089,12 +1103,10 @@
         await new Promise(r=>setTimeout(r,12));
       }
       el.classList.remove('streaming');
-      el.innerHTML = full && full.trim() ? md(full) : '<span style="color:var(--ink-3)">（没有返回内容）</span>';
+      const rendered = full && full.trim() ? md(full) : '';
+      el.innerHTML = rendered || '<span style="color:var(--ink-3)">（没有返回内容）</span>';
       if(atBottom()) body.scrollTop=body.scrollHeight;
     }
-    // 工具名 → 人话动作 + 参数摘要,让"它做了什么"可读
-    const TOOL_VERB={ list_todos:'查待办', search_captured:'搜记忆', get_more_context:'看屏幕上下文', save_todo:'记待办' };
-    function toolVerb(name){ return TOOL_VERB[name] || name; }
     function argSummary(name, args){
       if(!args||typeof args!=='object') return '';
       if(name==='list_todos') return ({today:'今天',pending:'待处理',all:'全部'})[args.scope]||args.scope||'';
@@ -1103,16 +1115,14 @@
       if(name==='save_todo') return args.title||'';
       const v=Object.values(args)[0]; return v? String(v):'';
     }
-    const SPIN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9" opacity=".9"/></svg>';
-    const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
     function addToolLine(name, args){
       const d=document.createElement('div'); d.className='tool-line running';
       const sum=argSummary(name,args);
       d.innerHTML=
-        '<div class="th"><span class="ic">'+SPIN+'</span>'
+        '<div class="th"><span class="ic">○</span>'
         +'<span class="verb">'+esc(toolVerb(name))+'</span>'
-        +'<span class="sum">'+esc(sum)+'</span>'
-        +'<span class="chev">▶</span></div>'
+        +(sum?'<span class="sum">'+esc(sum)+'</span>':'')
+        +'<span class="chev">▸</span></div>'
         +'<div class="detail"></div>';
       const th=d.querySelector('.th');
       th.addEventListener('click',()=>{ d.classList.toggle('open'); });
@@ -1122,20 +1132,37 @@
     function finishToolLine(d, name, args, result){
       if(!d) return;
       d.classList.remove('running');
-      const ic=d.querySelector('.ic'); if(ic) ic.innerHTML=CHECK;
+      const ic=d.querySelector('.ic'); if(ic) ic.textContent='✓';
       let res=String(result||'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
       // 结果若是 JSON,提炼一句摘要(如"共 82 条")
-      let brief=res;
+      let brief='';
       try{ const o=JSON.parse(res); if(o&&typeof o==='object'){ if('total' in o) brief='共 '+o.total+' 条'; else if(Array.isArray(o)) brief=o.length+' 条结果'; } }catch(e){}
-      const sumEl=d.querySelector('.sum');
-      if(sumEl && brief && brief.length<40 && brief!==res){ sumEl.textContent=(sumEl.textContent?sumEl.textContent+' → ':'')+brief; }
+      if(brief){
+        let sumEl=d.querySelector('.sum');
+        if(!sumEl){ sumEl=document.createElement('span'); sumEl.className='sum'; d.querySelector('.chev').before(sumEl); }
+        sumEl.textContent=(sumEl.textContent?sumEl.textContent+' → ':'')+brief;
+      }
       const det=d.querySelector('.detail');
       if(det){
-        const argStr=(args&&Object.keys(args).length)?JSON.stringify(args):'（无）';
-        det.innerHTML='<div class="kv"><b>参数</b>  '+esc(argStr)+'</div>'
-          +'<div class="kv"><b>结果</b>  '+esc(res.length>1200?res.slice(0,1200)+' …':res)+'</div>';
+        det.innerHTML='<div class="kv">'+esc(humanizeResult(res))+'</div>';
       }
       body.scrollTop=body.scrollHeight;
+    }
+    // 把工具结果变成人话(不给用户看 raw JSON)。JSON→逐条列;非JSON→截断原文。
+    function humanizeResult(res){
+      try{
+        const o=JSON.parse(res);
+        if(Array.isArray(o)) return o.map((x,i)=>(i+1)+'. '+(x.title||x.name||JSON.stringify(x))).join('\n') || '（空）';
+        if(o&&typeof o==='object'){
+          const items=o.items||o.results||o.list;
+          if(Array.isArray(items)){
+            const head=('total' in o)?('共 '+o.total+' 条'+(o.scope?('（'+o.scope+'）'):'')+'\n'):'';
+            return head + items.map((x,i)=>(i+1)+'. '+(x.title||x.name||'')+(x.status?('  ·'+x.status):'')+(x.time?('  '+x.time):'')).join('\n');
+          }
+          return Object.entries(o).map(([k,v])=>k+'：'+(typeof v==='object'?JSON.stringify(v):v)).join('\n');
+        }
+      }catch(e){}
+      return res.length>800? res.slice(0,800)+' …' : (res||'（无内容）');
     }
     // 轻量 markdown 渲染(渲染进程内,同步、零 IPC、零依赖)。覆盖 agent 常用语法:
     // 标题/加粗/斜体/行内code/代码块/有序无序列表/引用/分割线/链接。先转义再逐条替换,防 XSS。

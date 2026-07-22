@@ -461,6 +461,7 @@ function openWorkspace() {
   });
   workspaceWin.loadFile('workspace.html');
   workspaceWin.once('ready-to-show', () => workspaceWin.show());
+  if (process.env.ORB_DEVTOOLS) workspaceWin.webContents.openDevTools({ mode: 'detach' });
   // 主进程注入数据数组到 window.__RECALL__,由 workspace.html 渲染(tab/详情/点击都在渲染层)
   // 只在数据实际变化时才推送 → 避免每 5s 全量重渲染导致列表闪烁
   let lastPayloadHash = null;
