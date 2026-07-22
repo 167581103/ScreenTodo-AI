@@ -44,8 +44,9 @@ contextBridge.exposeInMainWorld('orb', {
     const listener = (e, data) => {
       if (!data || !data.type) return;
       if (data.type === 'RUN_FINISHED') {
-        ipcRenderer.removeListener('chat:event', listener);
         if (onDone) onDone(data.result || {});
+        // Keep listener alive for subsequent events (e.g. SESSION_RENAMED auto-rename), auto-cleanup after a few seconds
+        setTimeout(() => ipcRenderer.removeListener('chat:event', listener), 5000);
       } else if (data.type === 'RUN_ERROR') {
         ipcRenderer.removeListener('chat:event', listener);
         if (onError) onError(data.error || '未知错误');

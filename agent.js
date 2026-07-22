@@ -42,8 +42,8 @@ module.exports = function createAgent(CONFIG, log, tools) {
   // 对话模式 jsonOut=false → 自然语言回复。
   // onToken(可选):传了就走流式(SSE),每个 content 增量回调一次,同时累积 tool_calls 与 usage。
   async function call(messages, allowTools, jsonOut, onToken, tier = 'large') {
-    // 热更新:每次调用时重读 config.json 模型路由,改 modelService 无需重启
-    // tier='large'→重模型(判读/工具); tier='small'→小模型(场景分类/重命名等轻任务)
+    // Hot-reload: re-read config.json model routing each call, no restart needed
+    // tier='large'→heavy model (judge/tools); tier='small'→light model (scene classification/auto-rename etc.)
     let apiBase, apiKey, model;
     try {
       const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -86,6 +86,8 @@ module.exports = function createAgent(CONFIG, log, tools) {
       });
       if (!onToken) {
         const d = await r.json();
+        if (d.error) log(`[api error] ${d.error.code}: ${d.error.message}`);
+        if (!d.choices) log('[api unexpected response] ' + JSON.stringify(d).slice(0,200));
         const u = d.usage || {};
         const hit = u.prompt_cache_hit_tokens || u.prompt_tokens_details?.cached_tokens || 0;
         const total = u.prompt_tokens || 0;
@@ -265,5 +267,14 @@ module.exports = function createAgent(CONFIG, log, tools) {
     return react(messages, false, emit);
   }
 
-  return { runOnScreen, runOnChat, classifyScene, get PROMPT() { return loadPrompt('judge', userName); } };
+  // Light task entry: single small-model call, no tools, returns plain text. For session auto-rename, intent classification etc.
+  async function runLight(systemPrompt, userMsg) {
+    const { msg } = await call([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMsg },
+    ], false, false, null, 'small');
+    return (msg.content || '').trim();
+  }
+
+  return { runOnScreen, runOnChat, classifyScene, runLight, get PROMPT() { return loadPrompt('judge', userName); } };
 };
