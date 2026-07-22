@@ -13,6 +13,7 @@ config.json
 suggestions.jsonl
 decisions.jsonl
 captured_todos.md
+sessions.json
 monitor.paused
 .tmp_plan_*.json
 
@@ -21,3 +22,5 @@ monitor.paused
 
 # 内部方案/验证脚本(不入库)
 docs/
+*.bak
+daemon.lock

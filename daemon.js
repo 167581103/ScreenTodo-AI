@@ -64,7 +64,11 @@ const judge = (screenText) => agent.runOnScreen(screenText);
 // 用 frame_id 当游标会被乱序推高、导致真实新帧被永久丢弃(表现为"无新增屏幕,跳过")。改用 start_time 时间戳游标根治。
 let lastTs = null;
 let stats = { rounds: 0, compacts: 0 };
-const titleSeen = new Set(); // 已建议过的标题,避免重复弹窗
+const titleSeen = new Set(); // 已建议过的标题(Agent 输出,可能漂移),避免重复弹窗
+// 已判读过的"屏幕事实片段"指纹(基于触发原文 it.context,稳定客观,不受 Agent 输出措辞漂移影响)。
+// 源头去重:同一段屏幕文本被相邻 tick 反复判读时,即使 Agent 吐出不同标题,也认定为同一事实、不重复产出。
+const factSeen = new Set();
+function normFact(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '').slice(0, 60); }
 
 // —— 模糊去重:宁滥勿缺模式下,模型可能把同一需求换种说法重复建议,需按"近似"拦截 ——
 function normTitle(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, ''); }
@@ -177,8 +181,10 @@ async function seedBaseline() {
     if (inc.lines.length) {
       const screenText = inc.lines.join('\n');
       lastWinHash = cheapHash(screenText); // 记录基线哈希,避免首个 tick 立刻重判同一屏
+      const sc = await agent.classifyScene(sceneFeatures(inc));
+      if (!sc.deliver) { log(`[baseline] ${sc.scene} · 不派活,跳过细判 (${sc.why})`); return; }
       const j = await judge(screenText);
-      log('[baseline] 载入屏幕 ' + inc.lines.length + ' 帧 ' + screenText.length + '字 | suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
+      log('[baseline] ' + sc.scene + ' 载入 ' + inc.lines.length + ' 帧 ' + screenText.length + '字 | suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
       await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000) });
     } else {
       log('[baseline] 无可见屏幕内容,跳过');
@@ -194,6 +200,15 @@ async function seedBaseline() {
 // lastWinHash: 上次送判的窗口内容哈希,相同则跳过(屏幕静止)。
 let lastWinHash = null;
 function cheapHash(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; } return h; }
+
+// 场景判的精简输入:每行(区域)只取头部,场景层不需要全文 → 输入更小、更省。
+// 场景靠"结构 + 特征词"识别,不靠通读内容。总封顶 ~800 字。
+function sceneFeatures(inc) {
+  const heads = inc.lines.map((l) => l.slice(0, 90));
+  let s = heads.join('\n');
+  if (s.length > 800) s = s.slice(0, 800);
+  return s;
+}
 
 async function fetchContext() {
   const K = CONFIG.monitor.winFrames || 6;         // 滑窗帧数:近 K 帧
@@ -254,6 +269,13 @@ async function handleSuggest(j, meta) {
   for (const it of items) {
     const key = (it.title || '').trim();
     if (!key) continue;
+    // 源头去重(最先):按触发原文片段指纹判"这段屏幕事实是否已判过"。
+    // 关键——用输入原文(稳定)而非输出标题(漂移)做身份,拦住"同一条消息被相邻 tick 判成两个标题"。
+    const fp = normFact(it.context);
+    if (fp && fp.length >= 8) {
+      if (factSeen.has(fp)) { log('[dedup] 同一屏幕事实已判过,跳过: ' + key); continue; }
+      factSeen.add(fp);
+    }
     // 去重两层:① 本会话内存(titleSeen,免费快) ② 写入层存储(sinkFind,查 vault/Notion 等已有)
     if (isDupTitle(key)) { log('[dedup] 本会话去重跳过: ' + key); continue; }
     let existsInStore = false;
@@ -267,7 +289,9 @@ async function handleSuggest(j, meta) {
       raw: meta?.raw || '',
       ts: new Date().toISOString(),
     };
+    ensureSuggFile(); // 写前自愈:文件被误删也不丢这条
     fs.appendFileSync(SUGG_FILE, JSON.stringify(rec) + '\n');
+    backupSugg();     // 写后备份:新捕获立刻进 .bak,防误删/误清
     log('发现隐藏需求: ' + it.title + ' | ' + (it.reason || ''));
   }
 }
@@ -285,6 +309,10 @@ async function tick() {
     lastWinHash = h;
     stats.rounds = (stats.rounds || 0) + 1;
     log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 帧 ${screenText.length}字` + (inc.truncated ? ' [截断]' : '') + (inc.apps.includes('企业微信') ? ' [群聊]' : ''));
+    // 前置闸门:先轻量判场景。不派活的场景(开发会话/浏览/AI输出/导航)直接丢,不进重判读 → 省大头 token
+    const sc = await agent.classifyScene(sceneFeatures(inc));
+    if (!sc.deliver) { log(`[scene] ${sc.scene} · 不派活,跳过 (${sc.why})`); return; }
+    log(`[scene] ${sc.scene} · 可能派活 → 进细判`);
     const j = await judge(screenText);
     log('[judge] suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
     await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000) });
@@ -322,7 +350,12 @@ function prefillTitleSeen() {
     if (fs.existsSync(SUGG_FILE)) {
       for (const line of fs.readFileSync(SUGG_FILE, 'utf8').split('\n')) {
         if (!line.trim()) continue;
-        try { const t = JSON.parse(line).item?.title; if (t) titleSeen.add(t.trim()); } catch (e) {}
+        try {
+          const r = JSON.parse(line);
+          if (r.item?.title) titleSeen.add(r.item.title.trim());
+          const fp = normFact(r.item?.context); // 已产出事实的原文指纹,重启后不重判同一屏幕事实
+          if (fp && fp.length >= 8) factSeen.add(fp);
+        } catch (e) {}
       }
     }
     const cf = path.join(__dirname, CONFIG.monitor.todoFile || 'captured_todos.md');
@@ -341,12 +374,47 @@ const interval = (CONFIG.monitor.intervalSec || 30) * 1000;
 process.on('uncaughtException', (e) => log('UNCAUGHT: ' + (e && e.stack || e)));
 process.on('unhandledRejection', (e) => log('UNHANDLED: ' + (e && e.stack || e)));
 
+// 单实例锁:防止多个 daemon 并发跑(并发读写 suggestions.jsonl 是数据损坏的隐患来源之一)。
+// 用 PID 文件 + kill(0) 探活:已有活实例则本进程退出。
+const LOCK_FILE = path.join(__dirname, 'daemon.lock');
+function acquireLock() {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const oldPid = parseInt(fs.readFileSync(LOCK_FILE, 'utf8').trim(), 10);
+      if (oldPid && oldPid !== process.pid) {
+        try { process.kill(oldPid, 0); log('[lock] 已有 daemon 实例在跑(pid=' + oldPid + '),本进程退出'); process.exit(0); }
+        catch (e) { /* 老进程已死,抢锁 */ }
+      }
+    }
+    fs.writeFileSync(LOCK_FILE, String(process.pid));
+  } catch (e) { log('[lock] 获取锁失败(忽略): ' + e.message); }
+}
+process.on('exit', () => { try { if (fs.existsSync(LOCK_FILE) && parseInt(fs.readFileSync(LOCK_FILE, 'utf8'), 10) === process.pid) fs.unlinkSync(LOCK_FILE); } catch (e) {} });
+
+// 确保 suggestions.jsonl 存在(被误删/首次运行都自愈),让 appendFileSync 永不因文件缺失丢数据。
+function ensureSuggFile() {
+  try { if (!fs.existsSync(SUGG_FILE)) { fs.writeFileSync(SUGG_FILE, ''); log('[recover] suggestions.jsonl 不存在,已重建空文件'); } } catch (e) {}
+}
+
+// 轻量自动备份:每次 append 后有内容时,滚动备份到 suggestions.bak(单份,防误删/误清可回滚)。
+function backupSugg() {
+  try {
+    if (!fs.existsSync(SUGG_FILE)) return;
+    const cur = fs.readFileSync(SUGG_FILE, 'utf8');
+    if (cur.trim()) fs.writeFileSync(SUGG_FILE + '.bak', cur); // 只在非空时覆盖备份,避免空文件把好备份冲掉
+  } catch (e) {}
+}
+
 (async () => {
-  log('=== orb-daemon 启动 (滑窗+机械去重接入vault) ===');
+  acquireLock();
+  ensureSuggFile();
+  log('=== orb-daemon 启动 (滑窗+场景闸门+机械去重接入vault) ===');
   prefillTitleSeen();
   await seedBaseline();
   tick();
   setInterval(tick, interval);
   // 每 60s 重扫 vault:采纳后写入的新任务、或手动加的待办,也纳入去重
   setInterval(loadVaultTitles, 60000);
+  // 每 2 分钟备份一次 suggestions(非空才备份),防误删/误清
+  setInterval(backupSugg, 120000);
 })();

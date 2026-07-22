@@ -26,6 +26,73 @@ const wsData = require('./workspace-data');
 // 写入层 sink(存储可插拔,见 SINK_SPEC.md)
 const { sinkAdd } = require('./sink.js');
 
+// ── 对话 Agent(前台入口)——与后台 daemon 同一 agent.js 内核,工具集不同 ──
+// 屏幕上下文工具:向本机 Screenpipe 查最近 OCR 文本(与 daemon 的 get_more_context 同源)
+async function screenRecent(app) {
+  try {
+    const url = `${(CONFIG.screenpipe.apiBase || 'http://localhost:3030').replace(/\/$/, '')}/search?limit=40&content_type=ocr`;
+    const r = await fetch(url); const d = await r.json();
+    const seen = new Set(); const lines = [];
+    for (const it of (d.data || [])) {
+      const c = it.content || {}; const a = c.app_name || '';
+      if (app && !a.includes(app)) continue;
+      const txt = (c.text || '').trim(); if (!txt) continue;
+      const key = txt.replace(/\s+/g, '').slice(0, 120); if (seen.has(key)) continue; seen.add(key);
+      lines.push(`[${a || '?'}] ${txt.slice(-400)}`);
+      if (lines.length >= 15) break;
+    }
+    return lines.join('\n').slice(0, 3500) || '(未取到屏幕内容)';
+  } catch (e) { return '屏幕上下文获取失败: ' + e.message; }
+}
+const chatTools = {
+  get_more_context: {
+    def: { type: 'function', function: { name: 'get_more_context', description: '拉取某来源(app)最近的屏幕 OCR 内容,用于回顾/补全上下文。', parameters: { type: 'object', properties: { app: { type: 'string', description: '来源应用名,留空取全部' } } } } },
+    run: async (a) => screenRecent(a && a.app),
+  },
+  search_captured: {
+    def: { type: 'function', function: { name: 'search_captured', description: '在已捕获的工作记忆(待办/建议)里按关键词检索。查"今天/多少/全部待办"这类列表统计,请改用 list_todos。', parameters: { type: 'object', properties: { query: { type: 'string', description: '单个关键词最佳;多个词会做 OR 匹配' } }, required: ['query'] } } },
+    run: async (a) => {
+      try {
+        const q = (a.query || '').trim();
+        const words = q.split(/\s+/).filter(Boolean);
+        // 多词做 OR 合并去重(避免多词 AND 命中率过低返回空)
+        let rs = [];
+        if (words.length <= 1) rs = wsData.search ? wsData.search(q) : [];
+        else {
+          const seen = new Set();
+          for (const w of words) for (const r of (wsData.search ? wsData.search(w) : [])) {
+            const k = r.title || JSON.stringify(r); if (!seen.has(k)) { seen.add(k); rs.push(r); }
+          }
+        }
+        return JSON.stringify((rs || []).slice(0, 15)).slice(0, 3000) || '[]';
+      } catch (e) { return '检索失败: ' + e.message; }
+    },
+  },
+  list_todos: {
+    def: { type: 'function', function: { name: 'list_todos', description: '列出已捕获的待办/记忆条目,用于回答"今天有哪些待办/一共多少/最近记了什么"这类列表与统计问题。', parameters: { type: 'object', properties: { scope: { type: 'string', enum: ['today', 'all', 'pending'], description: 'today=今天捕获的;pending=待处理;all=全部(默认最近若干条)' } } } } },
+    run: async (a) => {
+      try {
+        const all = wsData.getRecall ? wsData.getRecall() : [];
+        const scope = (a && a.scope) || 'all';
+        const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+        let list = all;
+        if (scope === 'today') list = all.filter(x => x.time && x.time >= startOfDay.getTime());
+        else if (scope === 'pending') list = all.filter(x => !x.status);
+        const brief = list.slice(0, 40).map(x => ({ title: x.title, status: x.status || 'pending', time: x.time ? new Date(x.time).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '' }));
+        return JSON.stringify({ scope, total: list.length, items: brief }).slice(0, 3500);
+      } catch (e) { return '列举失败: ' + e.message; }
+    },
+  },
+  save_todo: {
+    def: { type: 'function', function: { name: 'save_todo', description: '把一条待办写入用户的 todo 系统(vault)。确认是用户想记的事再调用。', parameters: { type: 'object', properties: { title: { type: 'string', description: '简短待办标题' }, note: { type: 'string', description: '补充说明/来源(可选)' } }, required: ['title'] } } },
+    run: async (a) => {
+      try { const ok = await sinkAdd({ title: a.title, context: a.note || '', reason: '对话中记录', time: new Date().toISOString() }); return ok ? ('已写入: ' + a.title) : '写入失败'; }
+      catch (e) { return '写入失败: ' + e.message; }
+    },
+  },
+};
+const chatAgent = require('./agent.js')(CONFIG, log, chatTools);
+
 let tray = null;
 let suggWin = null;
 let monitoring = true;
@@ -244,6 +311,136 @@ ipcMain.on('settings:setFilter', (e, f) => {
     log('已更新过滤名单: deny=' + JSON.stringify(c.filter.denyApps) + ' allow=' + JSON.stringify(c.filter.allowApps));
   } catch (err) { log('写过滤名单失败: ' + err.message); }
 });
+
+// ---------- 获取当前运行进程列表(供设置页白/黑名单选择)----------
+const { execSync } = require('child_process');
+ipcMain.handle('settings:running-processes', () => {
+  try {
+    const out = execSync('ps -eo comm | sed 1d | sort -u', { encoding: 'utf8', timeout: 3000 });
+    return out.trim().split('\n').filter(Boolean);
+  } catch (e) { log('获取进程列表失败: ' + e.message); return []; }
+});
+
+// ---------- 对话 Agent(工作台内嵌面板)—— 多会话管理 ----------
+const SESSIONS_PATH = path.join(__dirname, 'sessions.json');
+let _sessions = null;
+function loadSessions() {
+  if (!_sessions) {
+    try { _sessions = JSON.parse(fs.readFileSync(SESSIONS_PATH, 'utf8')); }
+    catch (e) { _sessions = { active: null, list: [] }; }
+  }
+  return _sessions;
+}
+function saveSessions() { fs.writeFileSync(SESSIONS_PATH, JSON.stringify(_sessions, null, 2) + '\n'); }
+function getActive() {
+  const s = loadSessions();
+  if (!s.active || !s.list.find(x => x.id === s.active)) {
+    // 没有活跃会话时自动创建默认
+    const id = 'sess-' + Date.now().toString(36);
+    const def = { id, name: '默认对话', createdAt: new Date().toISOString(), messages: [] };
+    s.list.push(def); s.active = id; saveSessions();
+    return def;
+  }
+  return s.list.find(x => x.id === s.active);
+}
+
+ipcMain.handle('chat:list-sessions', () => {
+  const s = loadSessions();
+  return { active: s.active, list: s.list.map(x => ({ id: x.id, name: x.name, createdAt: x.createdAt, msgCount: (x.messages||[]).length })) };
+});
+ipcMain.handle('chat:get-session', (e, id) => {
+  const s = loadSessions();
+  return s.list.find(x => x.id === id) || null;
+});
+ipcMain.handle('chat:create-session', () => {
+  const s = loadSessions();
+  const id = 'sess-' + Date.now().toString(36);
+  const ses = { id, name: '新的对话', createdAt: new Date().toISOString(), messages: [] };
+  s.list.push(ses); s.active = id; saveSessions();
+  return { active: s.active, list: s.list.map(x => ({ id: x.id, name: x.name, createdAt: x.createdAt, msgCount: (x.messages||[]).length })) };
+});
+ipcMain.handle('chat:delete-session', (e, id) => {
+  const s = loadSessions();
+  const idx = s.list.findIndex(x => x.id === id);
+  if (idx < 0) return s;
+  s.list.splice(idx, 1);
+  if (s.active === id) s.active = s.list.length ? s.list[0].id : null;
+  saveSessions();
+  return { active: s.active, list: s.list.map(x => ({ id: x.id, name: x.name, createdAt: x.createdAt, msgCount: (x.messages||[]).length })) };
+});
+ipcMain.handle('chat:rename-session', (e, { id, name }) => {
+  const s = loadSessions();
+  const ses = s.list.find(x => x.id === id);
+  if (ses) { ses.name = String(name||'').trim() || ses.name; saveSessions(); }
+  return ses ? { id: ses.id, name: ses.name } : null;
+});
+ipcMain.handle('chat:switch-session', (e, id) => {
+  const s = loadSessions();
+  if (s.list.find(x => x.id === id)) { s.active = id; saveSessions(); return getActive(); }
+  return getActive();
+});
+ipcMain.handle('chat:reorder-sessions', (e, ids) => {
+  const s = loadSessions();
+  s.list = ids.map(id => s.list.find(x => x.id === id)).filter(Boolean);
+  saveSessions();
+  return { ok: true };
+});
+
+// 流式对话:消息写入当前活跃会话
+ipcMain.on('chat:stream', async (e, text) => {
+  const sender = e.sender;
+  const toolsThisRun = [];
+  const emit = (type, payload = {}) => {
+    // 截获工具调用,持久化到会话展示历史(仅记工具名)
+    if (type === 'TOOL_CALL_END' && payload.toolName) toolsThisRun.push(String(payload.toolName));
+    try { sender.send('chat:event', { type, ...payload }); } catch (_) {}
+  };
+  const guard = new Promise((_, rej) => setTimeout(() => rej(new Error('响应超时')), 50000));
+  const ses = getActive();
+  // 传给 LLM 的 history 只保留 user/assistant(tool 行是展示用,混入会破坏 API 调用配对)
+  let history = (ses.messages || []).filter(m => m.role === 'user' || m.role === 'assistant');
+  try {
+    const r = await Promise.race([chatAgent.runOnChat(String(text || ''), history, emit), guard]);
+    const reply = r && r.reply ? r.reply
+      : (r && r.suggest && r.items && r.items.length) ? ('我记下了:' + r.items.map(i => i.title).join('、'))
+      : (r && r._reply) ? r._reply
+      : (typeof r === 'string' ? r : (r && r.text) || '(已处理)');
+    ses.messages.push({ role: 'user', content: String(text || '') });
+    for (const t of toolsThisRun) ses.messages.push({ role: 'tool', content: t });
+    ses.messages.push({ role: 'assistant', content: reply });
+    if (ses.messages.length > 60) ses.messages = ses.messages.slice(-60);
+    saveSessions();
+    emit('RUN_FINISHED', { result: { reply } });
+  } catch (err) {
+    log('chat 失败: ' + err.message);
+    emit('RUN_ERROR', { error: '出错了: ' + err.message });
+  }
+});
+ipcMain.handle('chat:reset', () => {
+  const ses = getActive();
+  ses.messages = [];
+  saveSessions();
+  return { ok: true };
+});
+
+// Markdown 渲染在主进程(Node,可安全 require;preload 在 sandbox 下不能 require 第三方)。
+// dompurify 需 DOM,主进程无 DOM → 用 marked 解析 + 轻量 sanitize(去 script/on* /javascript:)。
+let _marked = null;
+function renderMarkdownMain(md) {
+  try {
+    if (!_marked) _marked = require('marked');
+    let html = _marked.parse(String(md || ''), { breaks: true, gfm: true });
+    html = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/javascript:/gi, '');
+    return html;
+  } catch (e) {
+    // 兜底:纯文本转义 + 换行
+    return String(md || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).replace(/\n/g, '<br>');
+  }
+}
+ipcMain.handle('chat:renderMarkdown', (e, md) => renderMarkdownMain(md));
 
 // ---------- 工作台窗口 ----------
 let workspaceWin = null;

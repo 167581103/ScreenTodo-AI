@@ -1,4 +1,6 @@
 // preload.js — 安全暴露 IPC 给渲染进程
+// 注意:electron 默认 sandbox:true,preload 里不能 require 第三方模块(会崩溃导致 orb 不暴露)。
+// 所以只 require electron 内置;markdown 渲染放主进程,经 IPC 调用。
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('orb', {
@@ -21,4 +23,35 @@ contextBridge.exposeInMainWorld('orb', {
   // 设置:读写 config.filter(黑/白名单)
   getFilter: () => ipcRenderer.invoke('settings:getFilter'),
   setFilter: (f) => ipcRenderer.send('settings:setFilter', f),
+  getRunningProcesses: () => ipcRenderer.invoke('settings:running-processes'),
+  // 对话 Agent(agui 流式 + 多会话管理)
+  listSessions: () => ipcRenderer.invoke('chat:list-sessions'),
+  getSession: (id) => ipcRenderer.invoke('chat:get-session', id),
+  createSession: () => ipcRenderer.invoke('chat:create-session'),
+  deleteSession: (id) => ipcRenderer.invoke('chat:delete-session', id),
+  renameSession: (id, name) => ipcRenderer.invoke('chat:rename-session', { id, name }),
+  switchSession: (id) => ipcRenderer.invoke('chat:switch-session', id),
+  reorderSessions: (ids) => ipcRenderer.invoke('chat:reorder-sessions', ids),
+  chatStream: (text, handlers) => {
+    const onEvent = handlers && handlers.onEvent;
+    const onDone = handlers && handlers.onDone;
+    const onError = handlers && handlers.onError;
+    const listener = (e, data) => {
+      if (!data || !data.type) return;
+      if (data.type === 'RUN_FINISHED') {
+        ipcRenderer.removeListener('chat:event', listener);
+        if (onDone) onDone(data.result || {});
+      } else if (data.type === 'RUN_ERROR') {
+        ipcRenderer.removeListener('chat:event', listener);
+        if (onError) onError(data.error || '未知错误');
+      } else if (onEvent) {
+        onEvent(data);
+      }
+    };
+    ipcRenderer.on('chat:event', listener);
+    ipcRenderer.send('chat:stream', text);
+  },
+  chatReset: () => ipcRenderer.invoke('chat:reset'),
+  // Markdown 渲染(在主进程做,已 sanitize)
+  renderMarkdown: (md) => ipcRenderer.invoke('chat:renderMarkdown', md),
 });
