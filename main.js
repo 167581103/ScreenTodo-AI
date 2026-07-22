@@ -363,7 +363,7 @@ function getActive() {
   if (!s.active || !s.list.find(x => x.id === s.active)) {
     // 没有活跃会话时自动创建默认
     const id = 'sess-' + Date.now().toString(36);
-    const def = { id, name: '默认对话', createdAt: new Date().toISOString(), messages: [] };
+    const def = { id, name: 'New Chat', createdAt: new Date().toISOString(), messages: [] };
     s.list.push(def); s.active = id; saveSessions();
     return def;
   }
@@ -381,7 +381,7 @@ ipcMain.handle('chat:get-session', (e, id) => {
 ipcMain.handle('chat:create-session', () => {
   const s = loadSessions();
   const id = 'sess-' + Date.now().toString(36);
-  const ses = { id, name: '新的对话', createdAt: new Date().toISOString(), messages: [] };
+  const ses = { id, name: 'New Session', createdAt: new Date().toISOString(), messages: [] };
   s.list.push(ses); s.active = id; saveSessions();
   return { active: s.active, list: s.list.map(x => ({ id: x.id, name: x.name, createdAt: x.createdAt, msgCount: (x.messages||[]).length })) };
 });
@@ -437,6 +437,20 @@ ipcMain.on('chat:stream', async (e, text) => {
     if (ses.messages.length > 60) ses.messages = ses.messages.slice(-60);
     saveSessions();
     emit('RUN_FINISHED', { result: { reply } });
+    // Auto-rename: after first chat in a new session, generate title from user input (async, non-blocking)
+    const defaultNames = ['New Chat', 'New Session'];
+    if (defaultNames.includes(ses.name) && text) {
+      chatAgent.runLight(
+        'Based on the user\'s first message, generate a short (≤8 chars) session title. Output only the title, no extra text.',
+        text
+      ).then(title => {
+        if (title && title.length <= 20 && title.length >= 1 && defaultNames.includes(ses.name)) {
+          ses.name = title;
+          saveSessions();
+          try { sender.send('chat:event', { type: 'SESSION_RENAMED', sessionId: ses.id, name: ses.name }); } catch (_) {}
+        }
+      }).catch(e => log('auto-rename failed: ' + (e && e.message || e)));
+    }
   } catch (err) {
     log('chat 失败: ' + err.message);
     emit('RUN_ERROR', { error: '出错了: ' + err.message });

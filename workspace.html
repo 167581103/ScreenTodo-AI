@@ -1522,6 +1522,14 @@
       el.innerHTML = rendered || '<span style="color:var(--ink-3)">（没有返回内容）</span>';
       if(atBottom()) body.scrollTop=body.scrollHeight;
     }
+    // Lightweight typewriter: animate session title update in the sidebar (plain text, no markdown)
+    async function typewriteName(el, name){
+      el.textContent = '';
+      for(let i=1; i<=name.length; i++){
+        el.textContent = name.slice(0, i);
+        await new Promise(r=>setTimeout(r, 40));
+      }
+    }
     function argSummary(name, args){
       if(!args||typeof args!=='object') return '';
       if(name==='list_todos') return ({today:'今天',pending:'待处理',all:'全部'})[args.scope]||args.scope||'';
@@ -1665,6 +1673,16 @@
                 break;
               case 'TOOL_CALL_END':
                 finishToolLine(curTool, ev.toolName, ev.args, ev.result); curTool=null;
+                break;
+              case 'SESSION_RENAMED':
+                // Typewriter effect for live sidebar session title update, no full list refresh
+                if (ev.sessionId && ev.name) {
+                  const item = document.querySelector('.session-item[data-sid="' + ev.sessionId + '"]');
+                  if (item) {
+                    const nameEl = item.querySelector('.ses-name');
+                    if (nameEl) typewriteName(nameEl, ev.name);
+                  }
+                }
                 break;
             }
           },
