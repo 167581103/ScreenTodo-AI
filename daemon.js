@@ -106,8 +106,11 @@ async function fetchRaw(limit, sinceTs) {
   if (sinceTs) url += `&start_time=${encodeURIComponent(sinceTs)}`;
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), 8000);
+  // Screenpipe API 需 Bearer 鉴权:优先 env SCREENPIPE_API_KEY,其次 config.screenpipe.apiKey
+  const spKey = process.env.SCREENPIPE_API_KEY || (CONFIG.screenpipe && CONFIG.screenpipe.apiKey) || '';
+  const headers = spKey ? { Authorization: `Bearer ${spKey}` } : {};
   try {
-    const r = await fetch(url, { signal: ac.signal });
+    const r = await fetch(url, { signal: ac.signal, headers });
     const d = await r.json();
     const items = d.data || [];
     // 白/黑名单:每次实时从 config.json 读取 → 设置页改动即时生效,无需重启 daemon。
@@ -141,7 +144,7 @@ const SP_DB = (() => {
     const base = (CONFIG.screenpipe.dataDir) || path.join(path.dirname(__dirname), '.screenpipe');
     // 常见位置:项目上级 .screenpipe/db.sqlite;也兼容 Todo/.screenpipe
     const cands = [
-      path.join('/Users/chancguo/WorkBuddy/Todo/.screenpipe', 'db.sqlite'),
+      path.join('/Users/apple/WorkBuddy/Todo/.screenpipe', 'db.sqlite'),
       path.join(base, 'db.sqlite'),
     ];
     for (const c of cands) if (fs.existsSync(c)) return c;
@@ -181,11 +184,7 @@ async function seedBaseline() {
     if (inc.lines.length) {
       const screenText = inc.lines.join('\n');
       lastWinHash = cheapHash(screenText); // 记录基线哈希,避免首个 tick 立刻重判同一屏
-      const sc = await agent.classifyScene(sceneFeatures(inc));
-      if (!sc.deliver) { log(`[baseline] ${sc.scene} · 不派活,跳过细判 (${sc.why})`); return; }
-      const j = await judge(screenText);
-      log('[baseline] ' + sc.scene + ' 载入 ' + inc.lines.length + ' 帧 ' + screenText.length + '字 | suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
-      await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000) });
+      await judgeScreen(inc);
     } else {
       log('[baseline] 无可见屏幕内容,跳过');
     }
@@ -296,6 +295,30 @@ async function handleSuggest(j, meta) {
   }
 }
 
+// 捕获层判读:场景闸门 + 按来源 app 分块细判。
+// 分块是结构性修复——多 app 区域原本被拍扁成一段无边界文本喂给 judge,
+// 导致 A 窗口的联系人名字(企业微信 kindeng)被误归到 B 窗口消息(WorkBuddy/Hy3)的说话人。
+// 按 app 分块后各块独立判读,名字无法跨窗口串味,无需在 prompt 层打补丁。
+async function judgeScreen(inc) {
+  const sc = await agent.classifyScene(sceneFeatures(inc));
+  if (!sc.deliver) { log(`[scene] ${sc.scene} · 不派活,跳过 (${sc.why})`); return; }
+  log(`[scene] ${sc.scene} · 可能派活 → 进细判`);
+  // 按来源 app 聚行(行前缀 [app] / [app·区域]);同 app 内区域保持一起,跨 app 严格隔离。
+  const byApp = new Map();
+  for (const l of inc.lines) {
+    const m = l.match(/^\[([^\]·]+)/);
+    const app = (m && m[1]) || '未知';
+    if (!byApp.has(app)) byApp.set(app, []);
+    byApp.get(app).push(l);
+  }
+  for (const [app, group] of byApp) {
+    const appText = group.join('\n');
+    const j = await judge(appText);
+    log('[judge:' + app + '] suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
+    await handleSuggest(j, { apps: [app], raw: appText.slice(0, 2000) });
+  }
+}
+
 async function tick() {
   if (fs.existsSync(PAUSE_FILE)) return;
   const savedLastTs = lastTs;
@@ -309,13 +332,7 @@ async function tick() {
     lastWinHash = h;
     stats.rounds = (stats.rounds || 0) + 1;
     log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 帧 ${screenText.length}字` + (inc.truncated ? ' [截断]' : '') + (inc.apps.includes('企业微信') ? ' [群聊]' : ''));
-    // 前置闸门:先轻量判场景。不派活的场景(开发会话/浏览/AI输出/导航)直接丢,不进重判读 → 省大头 token
-    const sc = await agent.classifyScene(sceneFeatures(inc));
-    if (!sc.deliver) { log(`[scene] ${sc.scene} · 不派活,跳过 (${sc.why})`); return; }
-    log(`[scene] ${sc.scene} · 可能派活 → 进细判`);
-    const j = await judge(screenText);
-    log('[judge] suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
-    await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000) });
+    await judgeScreen(inc);
   } catch (e) {
     lastTs = savedLastTs;
     log('tick 错误: ' + e.message);
@@ -323,7 +340,7 @@ async function tick() {
 }
 
 // Obsidian vault 日常/ 目录:接入真正的 todo 文件系统做机械去重(可环境变量覆盖)
-const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/chancguo/Todo/todo/日常';
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/apple/Todo/todo/日常';
 
 // 扫描 vault 所有任务标题(- [ ]/- [x]/- [-]),加入 titleSeen。
 // 这样"我早已记过(甚至已完成)的事"再出现在屏幕上不会重复弹。

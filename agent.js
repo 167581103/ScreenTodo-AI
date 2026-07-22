@@ -41,9 +41,31 @@ module.exports = function createAgent(CONFIG, log, tools) {
   // 单次 LLM 调用。allowTools 决定是否带 tools。jsonOut=true 时末轮强制 JSON(判读用);
   // 对话模式 jsonOut=false → 自然语言回复。
   // onToken(可选):传了就走流式(SSE),每个 content 增量回调一次,同时累积 tool_calls 与 usage。
-  async function call(messages, allowTools, jsonOut, onToken) {
+  async function call(messages, allowTools, jsonOut, onToken, tier = 'large') {
+    // 热更新:每次调用时重读 config.json 模型路由,改 modelService 无需重启
+    // tier='large'→重模型(判读/工具); tier='small'→小模型(场景分类/重命名等轻任务)
+    let apiBase, apiKey, model;
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+      const ms = cfg.modelService;
+      let provName;
+      if (ms && typeof ms === 'object') {
+        provName = ms[tier] || ms.large || 'deepseek';
+      } else {
+        provName = ms || 'deepseek';
+      }
+      const pr = cfg[provName] || {};
+      apiBase = pr.apiBase || cfg.deepseek.apiBase;
+      apiKey  = pr.apiKey  || cfg.deepseek.apiKey;
+      model   = pr.model   || cfg.deepseek.model;
+    } catch (_) {
+      // fallback:读失败时用内存 CONFIG(不断 API 调用)
+      apiBase = CONFIG.deepseek.apiBase;
+      apiKey  = CONFIG.deepseek.apiKey;
+      model   = CONFIG.deepseek.model;
+    }
     const body = {
-      model: CONFIG.deepseek.model,
+      model,
       messages,
       temperature: 0.2,
       stream: !!onToken,
@@ -57,9 +79,9 @@ module.exports = function createAgent(CONFIG, log, tools) {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 40000);
     try {
-      const r = await fetch(CONFIG.deepseek.apiBase.replace(/\/$/, '') + '/chat/completions', {
+      const r = await fetch(apiBase.replace(/\/$/, '') + '/chat/completions', {
         method: 'POST', signal: ac.signal,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.deepseek.apiKey}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify(body),
       });
       if (!onToken) {
@@ -172,9 +194,12 @@ module.exports = function createAgent(CONFIG, log, tools) {
           const name = c.function?.name;
           let args = {}; try { args = JSON.parse(c.function?.arguments || '{}'); } catch (e) {}
           if (emit) emit('TOOL_CALL_START', { toolCallId: c.id, toolName: name || '?', args });
-          let result = '(工具不存在)';
+          let result;
           if (tools[name]) {
             try { result = await tools[name].run(args); } catch (e) { result = '工具执行出错: ' + e.message; }
+          } else {
+            const avail = Object.keys(tools);
+            result = `调用失败:工具 "${name}" 不存在。当前可用工具:${avail.length ? avail.join('、') : '(无)'}。请勿再调用不存在的工具;若无合适工具,请直接根据已知信息如实回答用户,不要编造。`;
           }
           log(`[tool] ${name}(${JSON.stringify(args).slice(0, 80)}) → ${String(result).length}字`);
           if (emit) emit('TOOL_CALL_END', { toolCallId: c.id, toolName: name || '?', args, result: String(result).slice(0, 4000) });
@@ -199,7 +224,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
         messages.push({ role: 'user', content: '请基于上面的信息,直接给我一个完整的回答(不要再调用工具)。' });
         continue;
       }
-      return { reply: '我查了下,没有找到相关内容。要不换个说法或告诉我更具体的信息?', _steps: steps, _usage: usage };
+      return { reply: '我这边暂时没有可用的屏幕内容或已捕获记录能回答这个。你可以换个说法，或者告诉我更具体的信息（比如想看哪个 App、哪类待办）？', _steps: steps, _usage: usage };
     }
     return jsonOut ? { suggest: false, _steps: steps, _usage: usage } : { reply: '我这边没能得出结论,要不再说一次?', _steps: steps, _usage: usage };
   }
@@ -214,7 +239,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
       const { msg } = await call([
         { role: 'system', content: loadPrompt('scene', userName) },
         { role: 'user', content: '这一屏的内容:\n' + sceneText },
-      ], false, true); // 无工具 + 强制 JSON
+      ], false, true, null, 'small'); // 小模型做场景分类(极低成本,支持 JSON 输出)
       const j = safeParse(msg.content);
       return { scene: j.scene || '未知', deliver: j.deliver !== false, why: j.why || '' };
     } catch (e) {

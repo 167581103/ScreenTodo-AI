@@ -7,8 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/chancguo/Todo/todo/日常';
-const TODO_WRITE = process.env.ORB_TODO_WRITE || '/Users/chancguo/WorkBuddy/Todo/scripts/todo_write.py';
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/apple/Todo/todo/日常';
+const TODO_WRITE = process.env.ORB_TODO_WRITE || '/Users/apple/WorkBuddy/Todo/scripts/todo_write.py';
 const PYTHON = process.env.ORB_PYTHON || 'python3';
 
 const norm = (s) => (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
