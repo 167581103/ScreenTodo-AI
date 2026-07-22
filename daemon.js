@@ -4,8 +4,10 @@
 // 第 N+1 轮请求的整个前缀(历史对话)都被 DeepSeek prefix cache 命中,只有本轮增量 miss → 命中率趋近 98%。
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { sinkFind } = require('./sink.js'); // 写入层去重:查 todo 是否已存在于配置的存储
 const { sanitizeFrame } = require('./sanitize.js'); // 输入预处理:剥离导航态/UI chrome 噪声
+const { segmentFrame } = require('./segment.js'); // 几何窗口分割:按坐标把糊锅多窗口切开
 
 const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
@@ -19,7 +21,44 @@ function log(m) {
 }
 
 // 语义层(核心算法)独立在 judge.js。daemon 只负责编排:取帧→预处理→[judge]→去重→写入。
-const { judge } = require('./judge.js')(CONFIG, log);
+// 判读 Agent 内核(有工具、有界 ReAct)。工具 get_more_context 让它在指代/上下文不全时自主补帧再判。
+const createAgent = require('./agent.js');
+// 工具:拉某来源(app)最近更多帧的文本,用于补全"这个/它"等指代 & 跨帧前文。
+const agentTools = {
+  get_more_context: {
+    def: {
+      type: 'function',
+      function: {
+        name: 'get_more_context',
+        description: '当屏幕文本里出现指代词(这个/它/上面那条)但看不到被指代对象,或消息像是某对话的片段而缺前文时,调用此工具拉取该来源最近的更多屏幕内容,以补全上下文。',
+        parameters: {
+          type: 'object',
+          properties: {
+            app: { type: 'string', description: '来源应用名,如"企业微信"。留空则取全部来源最近内容。' },
+            hint: { type: 'string', description: '你想找什么(如"这个指代的原文/被引用的消息"),便于聚焦。' },
+          },
+        },
+      },
+    },
+    run: async (args) => {
+      const raw = await fetchRaw(40); // 拉最近 40 帧(已过滤+sanitize)
+      let picked = raw;
+      if (args && args.app) picked = raw.filter((f) => (f.app || '').includes(args.app));
+      if (!picked.length) picked = raw; // 该 app 没匹配到,退回全部
+      // 时间正序、去重、截断,拼成可读上下文
+      const seen = new Set(); const lines = [];
+      for (const f of picked.slice(0, 20)) {
+        const key = f.txt.replace(/\s+/g, '').slice(0, 120);
+        if (seen.has(key)) continue; seen.add(key);
+        lines.push(`[${f.app || '?'}] ${f.txt.slice(-500)}`);
+      }
+      const out = lines.join('\n').slice(0, 3500);
+      return out || '(未取到更多上下文)';
+    },
+  },
+};
+const agent = createAgent(CONFIG, log, agentTools);
+const judge = (screenText) => agent.runOnScreen(screenText);
 
 // 增量游标:用帧时间戳(ISO)而非 frame_id。Screenpipe 搜索结果的 frame_id 不完全保序(同毫秒多窗口帧会乱序),
 // 用 frame_id 当游标会被乱序推高、导致真实新帧被永久丢弃(表现为"无新增屏幕,跳过")。改用 start_time 时间戳游标根治。
@@ -91,6 +130,34 @@ async function fetchRaw(limit, sinceTs) {
   }
 }
 
+// 批量从本地 Screenpipe DB 取 frame_id → text_json(search API 不返回坐标块,只能查库)。
+// 用于几何窗口分割。查不到/出错则返回空 map,分割自动退回拼平文本。
+const SP_DB = (() => {
+  try {
+    const base = (CONFIG.screenpipe.dataDir) || path.join(path.dirname(__dirname), '.screenpipe');
+    // 常见位置:项目上级 .screenpipe/db.sqlite;也兼容 Todo/.screenpipe
+    const cands = [
+      path.join('/Users/chancguo/WorkBuddy/Todo/.screenpipe', 'db.sqlite'),
+      path.join(base, 'db.sqlite'),
+    ];
+    for (const c of cands) if (fs.existsSync(c)) return c;
+  } catch (e) {}
+  return null;
+})();
+function fetchTextJson(frameIds) {
+  const map = {};
+  if (!SP_DB || !frameIds.length) return map;
+  try {
+    const ids = frameIds.filter(Number.isFinite).join(',');
+    if (!ids) return map;
+    const out = execFileSync('sqlite3', ['-json', SP_DB,
+      `SELECT frame_id, text_json FROM ocr_text WHERE frame_id IN (${ids}) AND text_json IS NOT NULL AND text_json!='';`],
+      { maxBuffer: 64 * 1024 * 1024, timeout: 4000 }).toString();
+    for (const row of JSON.parse(out || '[]')) map[row.frame_id] = row.text_json;
+  } catch (e) {}
+  return map;
+}
+
 // 仅把 lastTs 设到当前最新帧时间,避免首轮把历史全当增量(兜底用)
 async function primeLastTs() {
   try {
@@ -144,7 +211,33 @@ async function fetchContext() {
     if (f.txt && picked.length < K) { picked.push(f); if (f.app) apps.add(f.app); }
   }
   picked.reverse(); // 时间正序:旧→新,符合阅读顺序
-  for (const f of picked) lines.push(`[${f.app}] ${f.txt.slice(-PERFRAME)}`);
+  // 几何窗口分割:批量取这些帧的 text_json,能切开的帧按区域分别成行(区域间空间独立)。
+  // 关键:滑窗内多帧常含相同的侧边栏/导航区 → 按内容归一化去重,避免同一区域堆叠 N 次撑爆窗口。
+  const tjMap = fetchTextJson(picked.map(f => f.fid));
+  const seenRegion = new Set();
+  const normRegion = (s) => s.replace(/\s+/g, '').slice(0, 200); // 归一化取指纹(前 200 字)
+  const MAX_REGIONS = CONFIG.monitor.maxRegions || 12;           // 单次窗口区域数上限
+  for (const f of picked) {
+    const regions = tjMap[f.fid] ? segmentFrame(tjMap[f.fid]) : null;
+    if (regions && regions.length >= 2) {
+      for (const rg of regions) {
+        const clean = sanitizeFrame(rg);
+        if (!clean) continue;
+        const fp = normRegion(clean);
+        if (fp.length < 8 || seenRegion.has(fp)) continue; // 跨帧重复区域(如侧边栏)只留一次
+        seenRegion.add(fp);
+        lines.push(`[${f.app}·区域] ${clean.slice(-PERFRAME)}`);
+      }
+    } else {
+      const clean = f.txt;
+      const fp = normRegion(clean);
+      if (seenRegion.has(fp)) continue;
+      seenRegion.add(fp);
+      lines.push(`[${f.app}] ${clean.slice(-PERFRAME)}`);
+    }
+  }
+  // 区域数封顶:保留最新(尾部)的 N 个,防止碎片撑爆
+  if (lines.length > MAX_REGIONS) lines.splice(0, lines.length - MAX_REGIONS);
   lastTs = maxTs;
   // 总额字符硬上限:丢最旧行、保最新行
   let tot = lines.reduce((s, l) => s + l.length, 0);
