@@ -88,9 +88,10 @@ async function fetchRaw(limit, sinceTs) {
     const r = await fetch(url, { signal: ac.signal });
     const d = await r.json();
     const items = d.data || [];
-    // 白/黑名单(可配置):allowApps 非空 → 只放行名单内;denyApps → 一律拦截。
-    // 兼容旧字段 monitor.ignoreApps。
-    const flt = CONFIG.filter || {};
+    // 白/黑名单:每次实时从 config.json 读取 → 设置页改动即时生效,无需重启 daemon。
+    // allowApps 非空 → 只放行名单内;denyApps → 一律拦截。兼容旧 monitor.ignoreApps。
+    let flt = CONFIG.filter || {};
+    try { flt = (JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')).filter) || flt; } catch (e) {}
     const denyApps = flt.denyApps || CONFIG.monitor.ignoreApps || [];
     const allowApps = flt.allowApps || [];
     const out = [];

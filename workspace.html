@@ -95,27 +95,33 @@
   .tab.accepted .dot{background:var(--ok)}
   .tab.ignored .dot{background:var(--off)}
 
-  .side-foot{margin-top:auto;display:flex;gap:2px;padding-top:10px;border-top:1px solid var(--line)}
-  .side-foot .ic{
-    width:30px;height:30px;border-radius:var(--r-s);display:flex;align-items:center;justify-content:center;
-    cursor:pointer;color:var(--ink-3);transition:background .14s,color .14s;-webkit-app-region:no-drag;
+  .side-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--line)}
+  .foot-btn{
+    display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:none;background:none;
+    border-radius:var(--r-m);font-size:13px;color:var(--ink-2);cursor:pointer;text-align:left;
+    transition:background .14s var(--e-out),color .14s var(--e-out);-webkit-app-region:no-drag;
+    font-family:inherit;
   }
-  .side-foot .ic:hover{background:color-mix(in srgb,var(--ink) 6%,transparent);color:var(--ink-2)}
-  .side-foot .ic svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.7;fill:none}
+  .foot-btn:hover{background:color-mix(in srgb,var(--ink) 5%,transparent);color:var(--ink)}
+  .foot-btn svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.7;fill:none;flex:none}
 
   /* ── main ── */
   .main{flex:1;display:flex;flex-direction:column;position:relative;min-width:0}
-  /* 轻快滚动条:默认细而淡,hover 变粗(缩小透明边框) + 变暗,带过渡 */
-  .canvas{flex:1;overflow-y:auto}
-  .canvas::-webkit-scrollbar{width:14px}
-  .canvas::-webkit-scrollbar-thumb{
-    background:var(--line-2);border-radius:8px;
-    border:5px solid transparent;background-clip:padding-box;
-    transition:background-color .16s var(--e-out),border-width .16s var(--e-out);
-    min-height:32px;
+  /* 原生滚动条隐藏,改用 JS 自定义 overlay 滚动条(真正可动画) */
+  .canvas{flex:1;overflow-y:auto;scrollbar-width:none}
+  .canvas::-webkit-scrollbar{width:0;height:0}
+  /* 自定义 overlay 滚动条:细→粗、淡→暗,都在普通元素上,transition 生效 */
+  .vscroll{position:absolute;top:0;right:2px;width:12px;pointer-events:none;z-index:6}
+  .vscroll .thumb{
+    position:absolute;right:3px;width:6px;border-radius:6px;
+    background:var(--line-2);opacity:0;pointer-events:auto;cursor:pointer;
+    transition:width .16s var(--e-out),background-color .16s var(--e-out),opacity .22s var(--e-out),right .16s var(--e-out);
   }
-  .canvas:hover::-webkit-scrollbar-thumb{background:var(--ink-3)}
-  .canvas::-webkit-scrollbar-thumb:hover{background:var(--ink-2);border-width:3px}
+  .main:hover .vscroll .thumb{opacity:1}                       /* 进区域:淡淡显现 */
+  .vscroll .thumb:hover, .vscroll .thumb.drag{
+    width:10px;right:1px;background:var(--ink-3);              /* 悬到滚动条上:变粗+变暗 */
+  }
+  .vscroll .thumb.drag{background:var(--ink-2)}
 
   .head{padding:24px 32px 14px;position:sticky;top:0;background:linear-gradient(var(--bg) 78%,transparent);z-index:2}
   .head h1{font-size:19px;font-weight:600;letter-spacing:-.02em}
@@ -201,6 +207,45 @@
   .stline.ign{color:var(--off)} .stline.ign::before{background:var(--off)}
   .stline.pend{color:var(--ink-2)} .stline.pend::before{background:var(--ink-3)}
 
+  /* ── 设置弹层 ── */
+  .settings-scrim{position:fixed;inset:0;background:color-mix(in srgb,var(--ink) 30%,transparent);opacity:0;pointer-events:none;transition:opacity .2s var(--e-out);z-index:299}
+  .settings-scrim.on{opacity:1;pointer-events:auto}
+  .settings{
+    position:fixed;top:50%;left:50%;width:480px;max-width:92vw;max-height:84vh;
+    transform:translate(-50%,-48%) scale(.98);opacity:0;pointer-events:none;
+    background:var(--raised);border:1px solid var(--line-2);border-radius:var(--r-l);
+    box-shadow:0 24px 60px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;
+    transition:opacity .2s var(--e-out),transform .22s var(--e-out);z-index:300;
+  }
+  .settings.on{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
+  .settings .sh{display:flex;align-items:center;padding:18px 22px 14px;border-bottom:1px solid var(--line)}
+  .settings .sh h2{font-size:16px;font-weight:600;flex:1;letter-spacing:-.01em}
+  .settings .sb{padding:20px 22px 24px;overflow-y:auto}
+  .set-group{margin-bottom:24px}
+  .set-group:last-of-type{margin-bottom:14px}
+  .set-lbl{font-size:13.5px;font-weight:600;color:var(--ink);margin-bottom:3px}
+  .set-desc{font-size:12.5px;color:var(--ink-3);line-height:1.5;margin-bottom:11px}
+  .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-m);padding:3px;gap:2px}
+  .seg button{
+    border:none;background:none;padding:6px 16px;border-radius:var(--r-s);font-size:13px;color:var(--ink-2);
+    cursor:pointer;font-family:inherit;transition:background .14s var(--e-out),color .14s var(--e-out);
+  }
+  .seg button:hover{color:var(--ink)}
+  .seg button.on{background:var(--raised);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .taglist{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .taglist:empty{margin-bottom:0}
+  .tag{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);background:var(--panel);border:1px solid var(--line);padding:4px 8px 4px 11px;border-radius:var(--r-s)}
+  .tag button{border:none;background:none;color:var(--ink-3);cursor:pointer;font-size:14px;line-height:1;padding:0;transition:color .14s}
+  .tag button:hover{color:var(--off)}
+  .tagin{
+    width:100%;padding:8px 11px;border:1px solid var(--line-2);border-radius:var(--r-m);
+    background:var(--bg);color:var(--ink);font-size:13px;font-family:inherit;outline:none;
+    transition:border-color .14s var(--e-out),box-shadow .14s var(--e-out);
+  }
+  .tagin:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash)}
+  .tagin::placeholder{color:var(--ink-3)}
+  .set-note{font-size:12px;color:var(--ink-3);line-height:1.6;padding-top:4px}
+
   @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   /* 仅首次加载入场;数据刷新不再重播(否则每 5s 闪一下) */
   .feed.intro .row{animation:rise .3s var(--e-out) both}
@@ -223,17 +268,16 @@
     <div class="tab accepted" data-f="accepted"><span class="dot"></span><span class="lbl">已采纳</span><span class="cnt" id="c-accepted">0</span></div>
     <div class="tab ignored" data-f="ignored"><span class="dot"></span><span class="lbl">已忽略</span><span class="cnt" id="c-ignored">0</span></div>
     <div class="side-foot">
-      <div class="ic" id="theme-toggle" title="外观：跟随系统"><span id="theme-glyph"></span></div>
-      <div class="ic" title="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round"/></svg></div>
-      <div class="ic" title="帮助"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.8.4-1.4 1-1.4 2.2" stroke-linecap="round"/><circle cx="12" cy="17.2" r=".6" fill="currentColor" stroke="none"/></svg></div>
+      <button class="foot-btn" id="open-settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round"/></svg><span>设置</span></button>
     </div>
   </aside>
 
   <section class="main">
-    <div class="canvas">
+    <div class="canvas" id="canvas">
       <header class="head"><h1 id="head-title">工作记忆</h1><p id="head-sub">从屏幕、对话与文档中安静捕获的上下文。</p></header>
       <div class="feed" id="list"></div>
     </div>
+    <div class="vscroll" id="vscroll"><div class="thumb" id="vthumb"></div></div>
 
     <div class="scrim" id="scrim"></div>
     <aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-label="记忆详情">
@@ -241,6 +285,39 @@
       <div class="db" id="d-body"></div>
     </aside>
   </section>
+</div>
+
+<!-- 设置弹层 -->
+<div class="settings-scrim" id="set-scrim"></div>
+<div class="settings" id="settings" role="dialog" aria-modal="true" aria-label="设置">
+  <div class="sh">
+    <h2>设置</h2>
+    <button class="dclose" id="set-close" aria-label="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg></button>
+  </div>
+  <div class="sb">
+    <div class="set-group">
+      <div class="set-lbl">外观</div>
+      <div class="set-desc">工作台的明暗主题。</div>
+      <div class="seg" id="seg-theme">
+        <button data-t="auto" class="on">跟随系统</button>
+        <button data-t="light">亮色</button>
+        <button data-t="dark">深色</button>
+      </div>
+    </div>
+    <div class="set-group">
+      <div class="set-lbl">进程黑名单</div>
+      <div class="set-desc">这些应用里的内容不会被捕获（如终端、密码管理器）。回车添加。</div>
+      <div class="taglist" id="deny-list"></div>
+      <input class="tagin" id="deny-in" placeholder="输入应用名后回车…" />
+    </div>
+    <div class="set-group">
+      <div class="set-lbl">进程白名单</div>
+      <div class="set-desc">留空 = 监控全部应用；填了则<b>只</b>监控名单内的应用。</div>
+      <div class="taglist" id="allow-list"></div>
+      <input class="tagin" id="allow-in" placeholder="留空监控全部，或输入应用名后回车…" />
+    </div>
+    <div class="set-note" id="set-note"></div>
+  </div>
 </div>
 
 <script>
@@ -309,6 +386,7 @@
       r.addEventListener('click',open);
       r.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});
     });
+    if(window.__syncScroll) window.__syncScroll();
   };
 
   function openDetail(it){
@@ -349,27 +427,80 @@
     window.renderRecall();
   }));
 
-  // ── 外观模式:auto(跟随系统)/ dark / light,循环切换,localStorage 记住 ──
-  const THEMES=['auto','light','dark'];
-  const GLYPH={
-    auto:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg>',
-    light:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12h2.5M19 12h2.5M5 5l1.8 1.8M17.2 17.2 19 19M19 5l-1.8 1.8M6.8 17.2 5 19"/></svg>',
-    dark:'<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" stroke="none"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>'
-  };
-  const LABEL={auto:'外观：跟随系统',light:'外观：亮色',dark:'外观：深色'};
+  // ── 外观模式:auto / light / dark ──
   function applyTheme(t){
     const root=document.documentElement;
     if(t==='auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme',t);
-    document.getElementById('theme-glyph').innerHTML=GLYPH[t];
-    document.getElementById('theme-toggle').title=LABEL[t];
     try{localStorage.setItem('orb-theme',t);}catch(e){}
+    document.querySelectorAll('#seg-theme button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
   }
   let curTheme=(()=>{try{return localStorage.getItem('orb-theme')||'auto';}catch(e){return 'auto';}})();
   applyTheme(curTheme);
-  document.getElementById('theme-toggle').addEventListener('click',()=>{
-    curTheme=THEMES[(THEMES.indexOf(curTheme)+1)%THEMES.length];
-    applyTheme(curTheme);
-  });
+  document.querySelectorAll('#seg-theme button').forEach(b=>b.addEventListener('click',()=>{curTheme=b.dataset.t;applyTheme(curTheme);}));
+
+  // ── 设置弹层:打开/关闭 ──
+  function openSettings(){document.getElementById('settings').classList.add('on');document.getElementById('set-scrim').classList.add('on');loadFilter();}
+  function closeSettings(){document.getElementById('settings').classList.remove('on');document.getElementById('set-scrim').classList.remove('on');}
+  document.getElementById('open-settings').addEventListener('click',openSettings);
+  document.getElementById('set-close').addEventListener('click',closeSettings);
+  document.getElementById('set-scrim').addEventListener('click',closeSettings);
+
+  // ── 黑/白名单编辑(读写 config.filter,经 preload IPC) ──
+  let filterState={denyApps:[],allowApps:[]};
+  function renderTags(){
+    const mk=(arr,which)=>arr.map((a,i)=>`<span class="tag">${esc(a)}<button data-w="${which}" data-i="${i}" aria-label="移除">×</button></span>`).join('');
+    document.getElementById('deny-list').innerHTML=mk(filterState.denyApps,'deny');
+    document.getElementById('allow-list').innerHTML=mk(filterState.allowApps,'allow');
+    document.querySelectorAll('.tag button').forEach(b=>b.addEventListener('click',()=>{
+      const arr=b.dataset.w==='deny'?filterState.denyApps:filterState.allowApps;
+      arr.splice(+b.dataset.i,1);saveFilter();
+    }));
+  }
+  async function loadFilter(){
+    if(window.orb&&window.orb.getFilter){ try{ filterState=await window.orb.getFilter()||filterState; }catch(e){} }
+    filterState.denyApps=filterState.denyApps||[];filterState.allowApps=filterState.allowApps||[];
+    renderTags();
+    document.getElementById('set-note').textContent='应用名需与系统里的进程名一致（如「企业微信」「Google Chrome」）。改动即时生效。';
+  }
+  function saveFilter(){ renderTags(); if(window.orb&&window.orb.setFilter) window.orb.setFilter({denyApps:filterState.denyApps,allowApps:filterState.allowApps}); }
+  function addTag(which,val){
+    val=(val||'').trim();if(!val)return;
+    const arr=which==='deny'?filterState.denyApps:filterState.allowApps;
+    if(!arr.includes(val)){arr.push(val);saveFilter();}
+  }
+  document.getElementById('deny-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('deny',e.target.value);e.target.value='';}});
+  document.getElementById('allow-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('allow',e.target.value);e.target.value='';}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSettings();});
+
+  // ── 自定义 overlay 滚动条:真正可动画(细→粗、淡→暗、拖拽) ──
+  (function customScroll(){
+    const canvas=document.getElementById('canvas'), track=document.getElementById('vscroll'), thumb=document.getElementById('vthumb');
+    if(!canvas||!thumb)return;
+    let dragging=false, startY=0, startTop=0;
+    function sync(){
+      const {scrollHeight,clientHeight,scrollTop}=canvas;
+      if(scrollHeight<=clientHeight){thumb.style.opacity='0';track.style.height='0';return;}
+      track.style.height=clientHeight+'px';track.style.top='0';
+      const h=Math.max(28, clientHeight*clientHeight/scrollHeight);
+      const maxTop=clientHeight-h;
+      const top=maxTop*(scrollTop/(scrollHeight-clientHeight));
+      thumb.style.height=h+'px';thumb.style.top=top+'px';
+    }
+    canvas.addEventListener('scroll',sync,{passive:true});
+    new ResizeObserver(sync).observe(canvas);
+    new MutationObserver(sync).observe(document.getElementById('list'),{childList:true,subtree:true});
+    thumb.addEventListener('mousedown',e=>{dragging=true;thumb.classList.add('drag');startY=e.clientY;startTop=parseFloat(thumb.style.top)||0;e.preventDefault();});
+    window.addEventListener('mousemove',e=>{
+      if(!dragging)return;
+      const {scrollHeight,clientHeight}=canvas;
+      const h=thumb.offsetHeight, maxTop=clientHeight-h;
+      let nt=Math.min(maxTop,Math.max(0,startTop+(e.clientY-startY)));
+      canvas.scrollTop=(nt/maxTop)*(scrollHeight-clientHeight);
+    });
+    window.addEventListener('mouseup',()=>{dragging=false;thumb.classList.remove('drag');});
+    setTimeout(sync,60);
+    window.__syncScroll=sync;
+  })();
 
   if(window.__RECALL__) window.renderRecall();
 </script>

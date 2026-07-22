@@ -225,6 +225,26 @@ ipcMain.handle('workspace:getRoutines', () => wsData.getRoutines());
 ipcMain.handle('workspace:getTimeline', async () => await wsData.getTimeline());
 ipcMain.handle('workspace:search', (e, q) => wsData.search(q));
 
+// ---------- 设置:读写 config.filter(黑/白名单) ----------
+const CONFIG_PATH = path.join(__dirname, 'config.json');
+ipcMain.handle('settings:getFilter', () => {
+  try {
+    const c = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const f = c.filter || {};
+    return { denyApps: f.denyApps || [], allowApps: f.allowApps || [] };
+  } catch (e) { return { denyApps: [], allowApps: [] }; }
+});
+ipcMain.on('settings:setFilter', (e, f) => {
+  try {
+    const c = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    c.filter = c.filter || {};
+    if (Array.isArray(f.denyApps)) c.filter.denyApps = f.denyApps;
+    if (Array.isArray(f.allowApps)) c.filter.allowApps = f.allowApps;
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(c, null, 2) + '\n');
+    log('已更新过滤名单: deny=' + JSON.stringify(c.filter.denyApps) + ' allow=' + JSON.stringify(c.filter.allowApps));
+  } catch (err) { log('写过滤名单失败: ' + err.message); }
+});
+
 // ---------- 工作台窗口 ----------
 let workspaceWin = null;
 function openWorkspace() {

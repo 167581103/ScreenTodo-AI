@@ -18,4 +18,7 @@ contextBridge.exposeInMainWorld('orb', {
   getRoutines: () => ipcRenderer.invoke('workspace:getRoutines'),
   getTimeline: () => ipcRenderer.invoke('workspace:getTimeline'),
   search: (q) => ipcRenderer.invoke('workspace:search', q),
+  // 设置:读写 config.filter(黑/白名单)
+  getFilter: () => ipcRenderer.invoke('settings:getFilter'),
+  setFilter: (f) => ipcRenderer.send('settings:setFilter', f),
 });
