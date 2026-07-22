@@ -239,16 +239,22 @@ function openWorkspace() {
   workspaceWin.loadFile('workspace.html');
   workspaceWin.once('ready-to-show', () => workspaceWin.show());
   // 主进程注入数据数组到 window.__RECALL__,由 workspace.html 渲染(tab/详情/点击都在渲染层)
-  const pushData = () => {
+  // 只在数据实际变化时才推送 → 避免每 5s 全量重渲染导致列表闪烁
+  let lastPayloadHash = null;
+  const pushData = (force) => {
     if (!workspaceWin || workspaceWin.isDestroyed()) return;
     try {
       const items = wsData.getRecall();
+      const payload = JSON.stringify(items);
+      let h = 0; for (let i = 0; i < payload.length; i++) h = (h * 31 + payload.charCodeAt(i)) | 0;
+      if (!force && h === lastPayloadHash) return; // 数据没变 → 不推送,不重渲染
+      lastPayloadHash = h;
       workspaceWin.webContents.executeJavaScript(
-        `window.__RECALL__ = ${JSON.stringify(items)}; if(window.renderRecall) window.renderRecall();`
+        `window.__RECALL__ = ${payload}; if(window.renderRecall) window.renderRecall();`
       );
     } catch (e) { log('注入失败: ' + e.message); }
   };
-  workspaceWin.webContents.once('did-finish-load', () => { pushData(); log('工作台数据已注入'); startWorkspaceRefresh(pushData); });
+  workspaceWin.webContents.once('did-finish-load', () => { pushData(true); log('工作台数据已注入'); startWorkspaceRefresh(pushData); });
   workspaceWin.on('closed', () => { workspaceWin = null; clearInterval(workspaceRefresh); });
   log('打开工作台窗口');
 }

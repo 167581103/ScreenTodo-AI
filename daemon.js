@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { sinkFind } = require('./sink.js'); // 写入层去重:查 todo 是否已存在于配置的存储
+const { sanitizeFrame } = require('./sanitize.js'); // 输入预处理:剥离导航态/UI chrome 噪声
 
 const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
@@ -92,9 +93,12 @@ async function fetchRaw(limit, sinceTs) {
     for (const it of items) {
       const c = it.content || {};
       const app = c.app_name || '';
-      const txt = (c.text || '').trim();
+      const rawTxt = (c.text || '').trim();
       if (ignoreApps.includes(app)) continue;
-      if (app === '' && /^WorkBuddy/.test(txt)) continue;
+      if (app === '' && /^WorkBuddy/.test(rawTxt)) continue;
+      // 输入预处理(架构层):剥离 UI chrome / 会话列表噪声,只把真内容送进语义层
+      const txt = sanitizeFrame(rawTxt);
+      if (!txt) continue; // 这帧清洗后无有效内容(纯导航态)→ 不喂 LLM
       out.push({ fid: c.frame_id || 0, app, txt, ts: c.timestamp || null });
     }
     return out;

@@ -79,7 +79,12 @@ function getRecall() {
     items.push({ kind: 'task', title: t.title, file: t.file, tag: '待办', time: t.time, status: null });
   }
   items.sort((a, b) => b.time - a.time);
-  return items.slice(0, 50);
+  // 有状态的条目(已采纳/已忽略)始终保留——它们是历史决策,不该被数量上限吃掉。
+  // 只对 pending(待处理)做上限,避免无限膨胀。
+  const decided = items.filter((i) => i.status);
+  const pending = items.filter((i) => !i.status).slice(0, 60);
+  const out = items.filter((i) => i.status || pending.includes(i));
+  return out;
 }
 
 // ---------- 会议(从群聊/晨会类捕获派生) ----------
