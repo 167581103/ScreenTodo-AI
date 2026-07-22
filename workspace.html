@@ -66,16 +66,9 @@
     display:flex;flex-direction:column;padding:14px 12px 12px;
   }
   .brand{display:flex;align-items:center;gap:9px;padding:4px 8px 18px;-webkit-app-region:drag}
-  .brand .mark{width:26px;height:26px;flex:none;display:block}
-  .brand .mark .box{fill:#1B1C1F}
-  .brand .mark .arc{stroke:#fff;fill:none;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round}
+  .brand .mark{width:24px;height:24px;flex:none;display:block}
+  .brand .mark .arc{stroke:var(--ink);fill:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
   .brand .name{font-size:14px;font-weight:600;letter-spacing:-.01em}
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]) .brand .mark .box{fill:#F4F5F7;stroke:#DEE0E5;stroke-width:1}
-    :root:not([data-theme="light"]) .brand .mark .arc{stroke:#1B1C1F}
-  }
-  :root[data-theme="dark"] .brand .mark .box{fill:#F4F5F7;stroke:#DEE0E5;stroke-width:1}
-  :root[data-theme="dark"] .brand .mark .arc{stroke:#1B1C1F}
 
   .nav-h{font-size:11px;font-weight:500;color:var(--ink-3);padding:8px 10px 4px}
   .tab{
@@ -84,16 +77,18 @@
     transition:background .14s var(--e-out),color .14s var(--e-out);
     -webkit-app-region:no-drag;
   }
-  .tab .dot{width:6px;height:6px;border-radius:50%;flex:none;background:currentColor;opacity:.35}
+  /* 左侧竖条指示器:选中时从中心展开,克制、不用色块 */
+  .tab::before{
+    content:"";position:absolute;left:0;top:50%;width:2.5px;height:0;
+    background:var(--ink);border-radius:2px;transform:translateY(-50%);
+    transition:height .18s var(--e-out);
+  }
   .tab .lbl{flex:1}
   .tab .cnt{font-size:11px;font-variant-numeric:tabular-nums;color:var(--ink-3);min-width:18px;text-align:right}
   .tab:hover{background:color-mix(in srgb,var(--ink) 5%,transparent);color:var(--ink)}
-  .tab.active{background:var(--accent-wash);color:var(--accent-ink);font-weight:500}
-  .tab.active .cnt{color:var(--accent-ink)}
-  .tab.active .dot{opacity:1;background:var(--accent)}
-  .tab.pending .dot{background:var(--ink-3)}
-  .tab.accepted .dot{background:var(--ok)}
-  .tab.ignored .dot{background:var(--off)}
+  .tab.active{color:var(--ink);font-weight:500}
+  .tab.active::before{height:15px}
+  .tab.active .cnt{color:var(--ink-2)}
 
   .side-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--line)}
   .foot-btn{
@@ -110,18 +105,21 @@
   /* 原生滚动条隐藏,改用 JS 自定义 overlay 滚动条(真正可动画) */
   .canvas{flex:1;overflow-y:auto;scrollbar-width:none}
   .canvas::-webkit-scrollbar{width:0;height:0}
-  /* 自定义 overlay 滚动条:细→粗、淡→暗,都在普通元素上,transition 生效 */
-  .vscroll{position:absolute;top:0;right:2px;width:12px;pointer-events:none;z-index:6}
+  /* 自定义 overlay 滚动条:细→粗、淡→暗,普通元素上 transition 生效。
+     整条 track 作为 hover 热区(而非只有 6px 的 thumb),悬停/拖拽时 thumb 变粗变暗。
+     宽度以右边缘为锚(right 固定)向内增长,不移动 right → 动画平滑不跳。 */
+  .vscroll{position:absolute;top:0;right:0;width:14px;pointer-events:none;z-index:6}
+  .main:hover .vscroll{pointer-events:auto}                    /* 进内容区才接管热区,不挡点击 */
   .vscroll .thumb{
-    position:absolute;right:3px;width:6px;border-radius:6px;
-    background:var(--line-2);opacity:0;pointer-events:auto;cursor:pointer;
-    transition:width .16s var(--e-out),background-color .16s var(--e-out),opacity .22s var(--e-out),right .16s var(--e-out);
+    position:absolute;right:3px;width:5px;border-radius:6px;
+    background:var(--ink-3);opacity:.45;pointer-events:none;
+    transition:width .18s var(--e-out),background-color .18s var(--e-out),opacity .22s var(--e-out);
   }
-  .main:hover .vscroll .thumb{opacity:1}                       /* 进区域:淡淡显现 */
-  .vscroll .thumb:hover, .vscroll .thumb.drag{
-    width:10px;right:1px;background:var(--ink-3);              /* 悬到滚动条上:变粗+变暗 */
+  .main:hover .vscroll .thumb{opacity:.7}                      /* 进区域:更清晰 */
+  .vscroll.hot .thumb, .vscroll .thumb.drag{
+    width:10px;opacity:1;background:var(--ink-2);              /* 悬到滚动条热区上:变粗+变暗 */
   }
-  .vscroll .thumb.drag{background:var(--ink-2)}
+  .vscroll .thumb.drag{background:var(--ink)}
 
   .head{padding:24px 32px 14px;position:sticky;top:0;background:linear-gradient(var(--bg) 78%,transparent);z-index:2}
   .head h1{font-size:19px;font-weight:600;letter-spacing:-.02em}
@@ -178,15 +176,11 @@
   }
   .dclose:hover{background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--ink)}
   .dclose svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none}
-  .db{flex:1;overflow-y:auto;padding:22px 26px 32px}
-  .db::-webkit-scrollbar{width:13px}
-  .db::-webkit-scrollbar-thumb{
-    background:var(--line-2);border-radius:8px;
-    border:5px solid transparent;background-clip:padding-box;
-    transition:background-color .16s var(--e-out),border-width .16s var(--e-out);min-height:28px;
-  }
-  .db:hover::-webkit-scrollbar-thumb{background:var(--ink-3)}
-  .db::-webkit-scrollbar-thumb:hover{background:var(--ink-2);border-width:3px}
+  .db{flex:1;overflow-y:auto;padding:22px 26px 32px;scrollbar-width:none}
+  .db::-webkit-scrollbar{width:0;height:0}
+  /* 详情抽屉复用同一套自定义 overlay 滚动条(.drawer 已是 position:absolute,天然作定位上下文) */
+  .drawer:hover .vscroll{pointer-events:auto}
+  .drawer:hover .vscroll .thumb{opacity:.7}
 
   .sec{margin-bottom:22px}
   .sec:last-child{margin-bottom:0}
@@ -259,14 +253,14 @@
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <svg class="mark" viewBox="0 0 52 52"><rect class="box" width="52" height="52" rx="14"/><path class="arc" d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16"/></svg>
+      <svg class="mark" viewBox="0 0 52 52"><path class="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg>
       <div class="name">ScreenTodo</div>
     </div>
     <div class="nav-h">筛选</div>
-    <div class="tab active" data-f="all"><span class="dot"></span><span class="lbl">全部</span><span class="cnt" id="c-all">0</span></div>
-    <div class="tab pending" data-f="pending"><span class="dot"></span><span class="lbl">待处理</span><span class="cnt" id="c-pending">0</span></div>
-    <div class="tab accepted" data-f="accepted"><span class="dot"></span><span class="lbl">已采纳</span><span class="cnt" id="c-accepted">0</span></div>
-    <div class="tab ignored" data-f="ignored"><span class="dot"></span><span class="lbl">已忽略</span><span class="cnt" id="c-ignored">0</span></div>
+    <div class="tab active" data-f="all"><span class="lbl">全部</span><span class="cnt" id="c-all">0</span></div>
+    <div class="tab pending" data-f="pending"><span class="lbl">待处理</span><span class="cnt" id="c-pending">0</span></div>
+    <div class="tab accepted" data-f="accepted"><span class="lbl">已采纳</span><span class="cnt" id="c-accepted">0</span></div>
+    <div class="tab ignored" data-f="ignored"><span class="lbl">已忽略</span><span class="cnt" id="c-ignored">0</span></div>
     <div class="side-foot">
       <button class="foot-btn" id="open-settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round"/></svg><span>设置</span></button>
     </div>
@@ -283,6 +277,7 @@
     <aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-label="记忆详情">
       <div class="dh"><h2 id="d-title">—</h2><button class="dclose" id="d-close" aria-label="关闭"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg></button></div>
       <div class="db" id="d-body"></div>
+      <div class="vscroll" id="dscroll"><div class="thumb" id="dthumb"></div></div>
     </aside>
   </section>
 </div>
@@ -409,6 +404,9 @@
     document.getElementById('d-body').innerHTML=parts.join('');
     document.getElementById('drawer').classList.add('open');
     document.getElementById('scrim').classList.add('on');
+    document.getElementById('d-body').scrollTop=0;
+    // 抽屉展开动画结束后再同步滚动条(此时高度稳定)
+    setTimeout(()=>{ if(window.__syncDrawer)window.__syncDrawer(); },300);
     window.renderRecall();
   }
   function closeDetail(){
@@ -472,35 +470,45 @@
   document.getElementById('allow-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('allow',e.target.value);e.target.value='';}});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSettings();});
 
-  // ── 自定义 overlay 滚动条:真正可动画(细→粗、淡→暗、拖拽) ──
-  (function customScroll(){
-    const canvas=document.getElementById('canvas'), track=document.getElementById('vscroll'), thumb=document.getElementById('vthumb');
-    if(!canvas||!thumb)return;
-    let dragging=false, startY=0, startTop=0;
+  // ── 自定义 overlay 滚动条:真正可动画(细→粗、淡→暗、拖拽)。工厂,复用于主列表 + 详情抽屉 ──
+  function bindScroll(scrollEl, track, thumb, watchEl){
+    if(!scrollEl||!track||!thumb)return null;
+    let dragging=false, startY=0, startTop=0, curTop=0, curH=28;
     function sync(){
-      const {scrollHeight,clientHeight,scrollTop}=canvas;
-      if(scrollHeight<=clientHeight){thumb.style.opacity='0';track.style.height='0';return;}
-      track.style.height=clientHeight+'px';track.style.top='0';
-      const h=Math.max(28, clientHeight*clientHeight/scrollHeight);
-      const maxTop=clientHeight-h;
-      const top=maxTop*(scrollTop/(scrollHeight-clientHeight));
-      thumb.style.height=h+'px';thumb.style.top=top+'px';
+      const {scrollHeight,clientHeight,scrollTop,offsetTop}=scrollEl;
+      if(scrollHeight<=clientHeight+1){track.style.display='none';return;}
+      track.style.display='';
+      // track 对齐滚动容器在其定位父级内的位置(抽屉里要让开头部 .dh)
+      track.style.top=offsetTop+'px';track.style.height=clientHeight+'px';
+      curH=Math.max(28, clientHeight*clientHeight/scrollHeight);
+      const maxTop=clientHeight-curH;
+      curTop=maxTop*(scrollTop/(scrollHeight-clientHeight));
+      thumb.style.height=curH+'px';thumb.style.top=curTop+'px';
     }
-    canvas.addEventListener('scroll',sync,{passive:true});
-    new ResizeObserver(sync).observe(canvas);
-    new MutationObserver(sync).observe(document.getElementById('list'),{childList:true,subtree:true});
-    thumb.addEventListener('mousedown',e=>{dragging=true;thumb.classList.add('drag');startY=e.clientY;startTop=parseFloat(thumb.style.top)||0;e.preventDefault();});
+    scrollEl.addEventListener('scroll',sync,{passive:true});
+    new ResizeObserver(sync).observe(scrollEl);
+    if(watchEl) new MutationObserver(sync).observe(watchEl,{childList:true,subtree:true});
+    track.addEventListener('mouseenter',()=>track.classList.add('hot'));
+    track.addEventListener('mouseleave',()=>{ if(!dragging) track.classList.remove('hot'); });
+    track.addEventListener('mousedown',e=>{
+      const {scrollHeight,clientHeight}=scrollEl;
+      const y=e.clientY-track.getBoundingClientRect().top;
+      if(y<curTop||y>curTop+curH){ const maxTop=clientHeight-curH; const nt=Math.min(maxTop,Math.max(0,y-curH/2)); scrollEl.scrollTop=(nt/maxTop)*(scrollHeight-clientHeight); }
+      dragging=true;thumb.classList.add('drag');track.classList.add('hot');startY=e.clientY;startTop=parseFloat(thumb.style.top)||0;e.preventDefault();
+    });
     window.addEventListener('mousemove',e=>{
       if(!dragging)return;
-      const {scrollHeight,clientHeight}=canvas;
-      const h=thumb.offsetHeight, maxTop=clientHeight-h;
+      const {scrollHeight,clientHeight}=scrollEl;
+      const maxTop=clientHeight-curH;
       let nt=Math.min(maxTop,Math.max(0,startTop+(e.clientY-startY)));
-      canvas.scrollTop=(nt/maxTop)*(scrollHeight-clientHeight);
+      scrollEl.scrollTop=(nt/maxTop)*(scrollHeight-clientHeight);
     });
-    window.addEventListener('mouseup',()=>{dragging=false;thumb.classList.remove('drag');});
+    window.addEventListener('mouseup',()=>{ if(!dragging)return; dragging=false;thumb.classList.remove('drag'); if(!track.matches(':hover'))track.classList.remove('hot'); });
     setTimeout(sync,60);
-    window.__syncScroll=sync;
-  })();
+    return sync;
+  }
+  window.__syncScroll = bindScroll(document.getElementById('canvas'), document.getElementById('vscroll'), document.getElementById('vthumb'), document.getElementById('list'));
+  window.__syncDrawer = bindScroll(document.getElementById('d-body'), document.getElementById('dscroll'), document.getElementById('dthumb'), document.getElementById('d-body'));
 
   if(window.__RECALL__) window.renderRecall();
 </script>
