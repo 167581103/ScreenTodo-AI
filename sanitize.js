@@ -18,9 +18,30 @@ function isNoiseLine(l) {
   return false;
 }
 
-// 清洗单帧:仅剥离通用噪声行。绝不因"像导航态"就丢内容——那交给用户层。
+// chrome 片段:承载工具自身 UI 的文本(如 Claw 所在的 WorkBuddy 界面),
+// 从行内剥掉而非丢整帧 → 保留同屏浏览器/IM 里的真内容。
+// 模式从 config.filter.chromePatterns 读,可配置,不硬编码具体软件。
+function loadChromeRegex() {
+  let patterns = [];
+  try {
+    const fs = require('fs'), path = require('path');
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+    patterns = (cfg.filter && cfg.filter.chromePatterns) || [];
+  } catch (e) {}
+  if (!patterns.length) return null;
+  try { return new RegExp(patterns.join('|'), 'g'); } catch (e) { return null; }
+}
+const WB_CHROME = loadChromeRegex();
+
+function stripWorkBuddyChrome(text) {
+  return WB_CHROME ? text.replace(WB_CHROME, ' ') : text;
+}
+
+// 清洗单帧:① 剥掉 WorkBuddy 自身 UI 片段 ② 去通用噪声行。
+// 绝不因"像导航态/像列表"就丢内容——那交给用户层提示词决定。
 function sanitizeFrame(text) {
-  const lines = String(text || '').split(/\r?\n/).map((l) => l.trim());
+  const stripped = stripWorkBuddyChrome(String(text || ''));
+  const lines = stripped.split(/\r?\n/).map((l) => l.trim());
   const kept = lines.filter((l) => l && !isNoiseLine(l));
   return kept.join('\n');
 }

@@ -88,17 +88,21 @@ async function fetchRaw(limit, sinceTs) {
     const r = await fetch(url, { signal: ac.signal });
     const d = await r.json();
     const items = d.data || [];
-    const ignoreApps = CONFIG.monitor.ignoreApps || [];
+    // 白/黑名单(可配置):allowApps 非空 → 只放行名单内;denyApps → 一律拦截。
+    // 兼容旧字段 monitor.ignoreApps。
+    const flt = CONFIG.filter || {};
+    const denyApps = flt.denyApps || CONFIG.monitor.ignoreApps || [];
+    const allowApps = flt.allowApps || [];
     const out = [];
     for (const it of items) {
       const c = it.content || {};
       const app = c.app_name || '';
       const rawTxt = (c.text || '').trim();
-      if (ignoreApps.includes(app)) continue;
-      if (app === '' && /^WorkBuddy/.test(rawTxt)) continue;
-      // 输入预处理(架构层):剥离 UI chrome / 会话列表噪声,只把真内容送进语义层
+      if (allowApps.length && !allowApps.includes(app)) continue; // 白名单模式
+      if (denyApps.includes(app)) continue;                        // 黑名单
+      // 行级剥离 chrome / 通用噪声,保留同屏其它窗口内容
       const txt = sanitizeFrame(rawTxt);
-      if (!txt) continue; // 这帧清洗后无有效内容(纯导航态)→ 不喂 LLM
+      if (!txt) continue;
       out.push({ fid: c.frame_id || 0, app, txt, ts: c.timestamp || null });
     }
     return out;

@@ -229,11 +229,17 @@ ipcMain.handle('workspace:search', (e, q) => wsData.search(q));
 let workspaceWin = null;
 function openWorkspace() {
   if (workspaceWin && !workspaceWin.isDestroyed()) { workspaceWin.focus(); return; }
+  // 外观:config.appearance.theme = auto/dark/light → 决定窗口初始底色 + nativeTheme
+  const theme = (CONFIG.appearance && CONFIG.appearance.theme) || 'auto';
+  try { const { nativeTheme } = require('electron'); if (theme !== 'auto') nativeTheme.themeSource = theme; } catch (e) {}
+  const dark = theme === 'dark' || (theme === 'auto' && (() => { try { return require('electron').nativeTheme.shouldUseDarkColors; } catch (e) { return false; } })());
+  const winBg = dark ? '#151619' : '#FBFBFC';
+  const barSym = dark ? '#ECEDF0' : '#54565E';
   workspaceWin = new BrowserWindow({
     width: 1200, height: 800, minWidth: 880, minHeight: 580,
-    backgroundColor: '#F4F1EA', show: false,
+    backgroundColor: winBg, show: false,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#F4F1EA', symbolColor: '#6B8472', height: 38 },
+    titleBarOverlay: { color: winBg, symbolColor: barSym, height: 38 },
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   workspaceWin.loadFile('workspace.html');

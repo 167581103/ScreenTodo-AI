@@ -30,14 +30,22 @@
     --z-drawer:100; --z-drag:200;
     --e-out:cubic-bezier(.22,.61,.36,1);
   }
+  /* 深色变量集:auto(跟随系统) + 显式 data-theme=dark 都套用 */
   @media (prefers-color-scheme:dark){
-    :root{
+    :root:not([data-theme="light"]){
       --bg:#151619; --panel:#1C1D21; --raised:#212328;
       --line:#2A2C31; --line-2:#34363C;
       --ink:#ECEDF0; --ink-2:#AEB0B8; --ink-3:#7E808A;
       --accent:#8A97F2; --accent-ink:#AAB4F6; --accent-wash:#25283A;
       --ok:#5FC79A; --ok-wash:#1E3329; --off:#E8848C; --off-wash:#3A2427;
     }
+  }
+  :root[data-theme="dark"]{
+    --bg:#151619; --panel:#1C1D21; --raised:#212328;
+    --line:#2A2C31; --line-2:#34363C;
+    --ink:#ECEDF0; --ink-2:#AEB0B8; --ink-3:#7E808A;
+    --accent:#8A97F2; --accent-ink:#AAB4F6; --accent-wash:#25283A;
+    --ok:#5FC79A; --ok-wash:#1E3329; --off:#E8848C; --off-wash:#3A2427;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%;overflow:hidden}
@@ -63,9 +71,11 @@
   .brand .mark .arc{stroke:#fff;fill:none;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round}
   .brand .name{font-size:14px;font-weight:600;letter-spacing:-.01em}
   @media (prefers-color-scheme:dark){
-    .brand .mark .box{fill:#F4F5F7;stroke:#DEE0E5;stroke-width:1}
-    .brand .mark .arc{stroke:#1B1C1F}
+    :root:not([data-theme="light"]) .brand .mark .box{fill:#F4F5F7;stroke:#DEE0E5;stroke-width:1}
+    :root:not([data-theme="light"]) .brand .mark .arc{stroke:#1B1C1F}
   }
+  :root[data-theme="dark"] .brand .mark .box{fill:#F4F5F7;stroke:#DEE0E5;stroke-width:1}
+  :root[data-theme="dark"] .brand .mark .arc{stroke:#1B1C1F}
 
   .nav-h{font-size:11px;font-weight:500;color:var(--ink-3);padding:8px 10px 4px}
   .tab{
@@ -95,10 +105,17 @@
 
   /* ── main ── */
   .main{flex:1;display:flex;flex-direction:column;position:relative;min-width:0}
+  /* 轻快滚动条:默认细而淡,hover 变粗(缩小透明边框) + 变暗,带过渡 */
   .canvas{flex:1;overflow-y:auto}
-  .canvas::-webkit-scrollbar{width:11px}
-  .canvas::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px;border:3px solid var(--bg);background-clip:padding-box}
-  .canvas::-webkit-scrollbar-thumb:hover{background:var(--ink-3);background-clip:padding-box}
+  .canvas::-webkit-scrollbar{width:14px}
+  .canvas::-webkit-scrollbar-thumb{
+    background:var(--line-2);border-radius:8px;
+    border:5px solid transparent;background-clip:padding-box;
+    transition:background-color .16s var(--e-out),border-width .16s var(--e-out);
+    min-height:32px;
+  }
+  .canvas:hover::-webkit-scrollbar-thumb{background:var(--ink-3)}
+  .canvas::-webkit-scrollbar-thumb:hover{background:var(--ink-2);border-width:3px}
 
   .head{padding:24px 32px 14px;position:sticky;top:0;background:linear-gradient(var(--bg) 78%,transparent);z-index:2}
   .head h1{font-size:19px;font-weight:600;letter-spacing:-.02em}
@@ -156,8 +173,14 @@
   .dclose:hover{background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--ink)}
   .dclose svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.8;fill:none}
   .db{flex:1;overflow-y:auto;padding:22px 26px 32px}
-  .db::-webkit-scrollbar{width:10px}
-  .db::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px;border:3px solid var(--raised);background-clip:padding-box}
+  .db::-webkit-scrollbar{width:13px}
+  .db::-webkit-scrollbar-thumb{
+    background:var(--line-2);border-radius:8px;
+    border:5px solid transparent;background-clip:padding-box;
+    transition:background-color .16s var(--e-out),border-width .16s var(--e-out);min-height:28px;
+  }
+  .db:hover::-webkit-scrollbar-thumb{background:var(--ink-3)}
+  .db::-webkit-scrollbar-thumb:hover{background:var(--ink-2);border-width:3px}
 
   .sec{margin-bottom:22px}
   .sec:last-child{margin-bottom:0}
@@ -200,6 +223,7 @@
     <div class="tab accepted" data-f="accepted"><span class="dot"></span><span class="lbl">已采纳</span><span class="cnt" id="c-accepted">0</span></div>
     <div class="tab ignored" data-f="ignored"><span class="dot"></span><span class="lbl">已忽略</span><span class="cnt" id="c-ignored">0</span></div>
     <div class="side-foot">
+      <div class="ic" id="theme-toggle" title="外观：跟随系统"><span id="theme-glyph"></span></div>
       <div class="ic" title="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round"/></svg></div>
       <div class="ic" title="帮助"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.8.4-1.4 1-1.4 2.2" stroke-linecap="round"/><circle cx="12" cy="17.2" r=".6" fill="currentColor" stroke="none"/></svg></div>
     </div>
@@ -324,6 +348,28 @@
     filter=t.dataset.f;
     window.renderRecall();
   }));
+
+  // ── 外观模式:auto(跟随系统)/ dark / light,循环切换,localStorage 记住 ──
+  const THEMES=['auto','light','dark'];
+  const GLYPH={
+    auto:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/></svg>',
+    light:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12h2.5M19 12h2.5M5 5l1.8 1.8M17.2 17.2 19 19M19 5l-1.8 1.8M6.8 17.2 5 19"/></svg>',
+    dark:'<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" stroke="none"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>'
+  };
+  const LABEL={auto:'外观：跟随系统',light:'外观：亮色',dark:'外观：深色'};
+  function applyTheme(t){
+    const root=document.documentElement;
+    if(t==='auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme',t);
+    document.getElementById('theme-glyph').innerHTML=GLYPH[t];
+    document.getElementById('theme-toggle').title=LABEL[t];
+    try{localStorage.setItem('orb-theme',t);}catch(e){}
+  }
+  let curTheme=(()=>{try{return localStorage.getItem('orb-theme')||'auto';}catch(e){return 'auto';}})();
+  applyTheme(curTheme);
+  document.getElementById('theme-toggle').addEventListener('click',()=>{
+    curTheme=THEMES[(THEMES.indexOf(curTheme)+1)%THEMES.length];
+    applyTheme(curTheme);
+  });
 
   if(window.__RECALL__) window.renderRecall();
 </script>
