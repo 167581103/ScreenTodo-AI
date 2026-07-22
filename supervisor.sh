@@ -2,10 +2,19 @@
 # supervisor.sh — 常驻守护:拉起并看护 screenpipe + daemon.js + electron
 # 用 Bash 工具的 run_in_background 启动,在桌面会话里常驻,每 ~10s 检查,挂了就重启。
 # 对 screenpipe 额外做健康巡检:卡死(stale)或长时间无新帧 → 杀掉重启(自愈)。
+# 路径全部可环境变量覆盖:
+#   ORB_NODE_BIN  受管 node 路径
+#   ORB_SP_BIN    screenpipe 二进制(默认取 PATH 里的 screenpipe)
+#   ORB_SP_DATA  screenpipe 数据目录(默认 $PROJ_DIR/.screenpipe)
+# 注:WorkBuddy 会给 NODE_OPTIONS 注入 --use-system-ca,electron 二进制拒绝它,故启动 electron 时 -u NODE_OPTIONS。
 cd "$(dirname "$0")"
-NODE_BIN="/Users/chancguo/.workbuddy/binaries/node/versions/22.22.2/bin/node"
-SP_BIN="/Users/chancguo/node_modules/@screenpipe/cli-darwin-arm64/bin/screenpipe"
-SP_DATA="/Users/chancguo/WorkBuddy/Todo/.screenpipe"
+PROJ_DIR="$PWD"
+NODE_BIN="${ORB_NODE_BIN:-/Users/apple/.workbuddy/binaries/node/versions/22.22.2/bin/node}"
+SP_BIN="${ORB_SP_BIN:-screenpipe}"
+SP_DATA="${ORB_SP_DATA:-$PROJ_DIR/.screenpipe}"
+# 从 config.json 读取 Screenpipe API key,注入环境变量,保证自愈重启 screenpipe 后 daemon 仍鉴权通过
+SP_KEY=$("$NODE_BIN" -e "try{console.log((require('./config.json').screenpipe||{}).apiKey||'')}catch(e){}" 2>/dev/null)
+[ -n "$SP_KEY" ] && export SCREENPIPE_API_KEY="$SP_KEY"
 LOG="supervisor.log"
 
 # pidfile 守护:用 kill -0 精确判断,避免 pgrep 瞬时漏判导致重复拉起
@@ -49,10 +58,8 @@ while true; do
   # —— daemon(判断引擎) ——
   ensure daemon.pid "daemon.js" "nohup \"$NODE_BIN\" daemon.js >> daemon.out 2>&1 &" && true
   if ! alive daemon.pid; then echo "[$(date)] 启动 daemon" >> "$LOG"; fi
-
   # —— electron(悬浮球 UI) ——
-  ensure electron.pid "floating-orb/node_modules/electron" "env -u ELECTRON_RUN_AS_NODE ./node_modules/.bin/electron . --no-sandbox --disable-gpu >> orb_run.log 2>&1 &" && true
+  ensure electron.pid "$PROJ_DIR/node_modules/electron" "env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS ./node_modules/.bin/electron . --no-sandbox --disable-gpu >> orb_run.log 2>&1 &" && true
   if ! alive electron.pid; then echo "[$(date)] 启动 electron" >> "$LOG"; fi
-
   sleep 10
 done

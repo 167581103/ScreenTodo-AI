@@ -12,9 +12,13 @@ const os = require('os');
 
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
 const DECISIONS_FILE = path.join(__dirname, 'decisions.jsonl');
-const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/chancguo/Todo/todo/日常';
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/apple/Todo/todo/日常';
 const LIFEOS_PLAN = path.join(os.homedir(), 'life-os/规划/阶段性目标.md');
 const SCREENPIPE = 'http://localhost:3030';
+// Screenpipe API 需 Bearer 鉴权(与 daemon fetchRaw / main.js screenRecent 一致)
+let _cfg = {};
+try { _cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); } catch (e) {}
+const SP_KEY = (_cfg.screenpipe && _cfg.screenpipe.apiKey) || '';
 
 // ---------- 基础读取 ----------
 function readJsonl(file) {
@@ -134,7 +138,8 @@ async function getTimeline() {
   const since = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
   const url = `${SCREENPIPE}/search?limit=50&content_type=ocr&start_time=${encodeURIComponent(since)}`;
   try {
-    const r = await fetch(url);
+    const headers = SP_KEY ? { Authorization: `Bearer ${SP_KEY}` } : {};
+    const r = await fetch(url, { headers });
     const j = await r.json();
     const data = j.data || j.results || [];
     return data
