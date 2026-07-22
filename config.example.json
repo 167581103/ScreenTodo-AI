@@ -1,4 +1,7 @@
 {
+  "user": {
+    "name": "你的名字(会替换 prompts/*.md 里的 {{USER}} 占位符)"
+  },
   "deepseek": {
     "apiBase": "https://api.deepseek.com",
     "apiKey": "sk-YOUR_DEEPSEEK_API_KEY",

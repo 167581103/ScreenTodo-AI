@@ -8,5 +8,9 @@
   },
   "devDependencies": {
     "electron": "^32.0.0"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.12",
+    "marked": "^18.0.7"
   }
 }
