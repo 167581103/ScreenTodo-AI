@@ -683,16 +683,19 @@ function FeedView({ filter }: { filter: string }) {
         <div className="feed"><div className="empty" dangerouslySetInnerHTML={{__html:ICON_EMPTY+'<div class="t">没有被拒的记录</div><div class="s">Agent 判否的会落在这里，可恢复。</div>'}} /></div>
       </div>
     );
-    return (
+    return (<>
       <div className="canvas">
         <div className="head"><h1>回收站</h1><p className="s">Agent 判否的会落在这里，可恢复。</p></div>
         <div className="feed">{rej.map(it=>(
-          <div key={it.id} className="row rej" data-rid={it.id} onClick={()=>setDetail({...it,kind:'rejected'})}>
+          <div key={it.id} className={`row rej${it.id===selId?' sel':''}`} data-rid={it.id} tabIndex={0}
+            onClick={()=>{ setSelId(it.id); setDetail(it); }}
+            onKeyDown={e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setSelId(it.id); setDetail(it); }}}>
             <div className="tt">{it.title}</div>
             <div className="meta">{fmtTime(it.time)}{it.scene?.name?' · '+it.scene.name:''}</div>
             <div className="ctx"><span className="src">被拒</span>{(it.screen||'').slice(0,80)}</div>
             <button className="restore-btn" onClick={async e=>{e.stopPropagation();
               if(window.orb?.restoreRejected) await window.orb.restoreRejected(it.id);
+              if (detail?.id === it.id) { setSelId(null); setDetail(null); }
               // 重新拉取回收站
               if(window.orb?.getRejected) window.orb.getRejected().then(setRej).catch(()=>{});
               // 触发主数据刷新(5s 内自动生效,但立即触发更快)
@@ -702,7 +705,8 @@ function FeedView({ filter }: { filter: string }) {
           </div>
         ))}</div>
       </div>
-    );
+      {detail && <DetailDrawer item={detail} onClose={()=>{ setSelId(null); setDetail(null); }} />}
+    </>);
   }
 
   let items = data;
