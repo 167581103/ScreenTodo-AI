@@ -25,6 +25,9 @@ function log(m) {
 // 判读 Agent 内核(有工具、有界 ReAct)。工具 get_more_context 让它在指代/上下文不全时自主补帧再判。
 const createAgent = require('./agent.js');
 // 工具:拉某来源(app)最近更多帧的文本,用于补全"这个/它"等指代 & 跨帧前文。
+// 判读中 Agent 通过 show_popup 工具排队的待弹窗项,判读结束后由 handleSuggest 统一写入并附带完整出生证。
+const toolPopups = [];
+
 const agentTools = {
   get_more_context: {
     def: {
@@ -55,6 +58,39 @@ const agentTools = {
       }
       const out = lines.join('\n').slice(0, 3500);
       return out || '(未取到更多上下文)';
+    },
+  },
+
+  // ── 弹窗通知：Agent 自主决定是否弹出建议给用户 ──
+  // 工具只排队,不直接写文件;判读结束后 handleSuggest 统一写入带完整出生证(思考+对话)的记录。
+  show_popup: {
+    def: {
+      type: 'function',
+      function: {
+        name: 'show_popup',
+        description: '弹出通知给用户。当你从屏幕中识别出需要用户处理的待办、提醒或重要信息时，调用此工具。这是你主动触达用户的唯一方式——不要只在思考里说"应该提醒用户"，直接调用工具。',
+        parameters: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: '简短动宾标题,≤20字。如"回复运营排期"、"提测计平需求"' },
+            reason: { type: 'string', description: '为什么值得用户关注,≤40字。引用屏幕上看到的具体信息' },
+            context: { type: 'string', description: '触发此通知的屏幕原文片段(可选),≤80字' },
+          },
+          required: ['title', 'reason'],
+        },
+      },
+    },
+    run: async (args) => {
+      const key = (args.title || '').trim();
+      if (!key) return '(show_popup 失败: title 不能为空)';
+      // 本轮内去重:同一标题不重复排队
+      if (toolPopups.some(t => t.item.title.trim() === key)) return `(跳过: "${key}" 已在本轮排队中)`;
+      toolPopups.push({
+        item: { title: args.title, reason: args.reason, context: args.context || '' },
+        raw: args.context || '',
+      });
+      log('[tool:show_popup] queued: ' + key + ' | ' + (args.reason || ''));
+      return `已记录弹窗: "${args.title}"。本轮判读完成后会自动弹出通知给用户。`;
     },
   },
 };
@@ -276,19 +312,57 @@ async function fetchContext() {
 }
 
 async function handleSuggest(j, meta) {
+  // ── 第一阶段：处理 Agent 通过 show_popup 工具排队的弹窗 ──
+  // 工具在判读中间调用,只排队不写文件;这里统一写入,附带完整出生证(真实思考+对话回放)。
+  const tp = toolPopups.splice(0);
+  for (const te of tp) {
+    const key = (te.item.title || '').trim();
+    if (!key) continue;
+    // 源头去重：按触发原文片段指纹
+    const fp = normFact(te.item.context);
+    if (fp && fp.length >= 8) {
+      if (factSeen.has(fp)) { log('[tool-popup dedup] 同一屏幕事实已判过,跳过: ' + key); continue; }
+      factSeen.add(fp);
+    }
+    if (isDupTitle(key)) { log('[tool-popup dedup] 本会话去重跳过: ' + key); continue; }
+    let existsInStore = false;
+    try { existsInStore = await sinkFind({ title: key }); } catch (e) {}
+    if (existsInStore) { log('[tool-popup dedup] 存储已有,跳过: ' + key); titleSeen.add(key); continue; }
+    titleSeen.add(key);
+    const rec = {
+      id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      item: te.item,
+      apps: meta?.apps || [],
+      raw: te.raw || meta?.raw || '',
+      ts: new Date().toISOString(),
+      trigger: 'agent-tool',
+      birth: {
+        scene: meta?.scene ? { name: meta.scene.scene, deliver: meta.scene.deliver, why: meta.scene.why } : null,
+        trace: meta?.trace || [],
+        steps: meta?.steps || 1,
+        dialog: meta?.dialog || [],   // Agent 完整判读对话回放
+        thinking: meta?.thinking || '', // Agent 真实自然语言思考
+      },
+    };
+    ensureSuggFile();
+    fs.appendFileSync(SUGG_FILE, JSON.stringify(rec) + '\n');
+    backupSugg();
+    log('[agent-tool] popup fired: ' + key + ' | ' + (te.item.reason || ''));
+  }
+
+  // ── 第二阶段：传统 JSON 输出路径(兼容旧模式或 Agent 未用工具的情况) ──
   let items = [];
   if (Array.isArray(j.items)) items = j.items;
   else if (j.suggest && j.title) items = [j];
   // 被拒(suggest=false):存进 rejected.jsonl 作"回收站",可恢复。
-  // 只存进细判后判否的(场景闸门拦下的 deliver=false 不进这里,不存)。
   if (!j.suggest || !items.length) {
     if (meta && meta.raw) {
       const rj = {
         id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
         screen: String(meta.raw).slice(0, 1200),
         scene: meta.scene ? { name: meta.scene.scene, why: meta.scene.why } : null,
-        dialog: meta.dialog || [], // Agent 判否的完整对话过程(回放用,和待办出生证同结构)
-        thinking: meta.thinking || '', // Agent 判否的自然语言思考
+        dialog: meta.dialog || [],
+        thinking: meta.thinking || '',
         ts: new Date().toISOString(),
       };
       try { fs.appendFileSync(REJECT_FILE, JSON.stringify(rj) + '\n'); } catch (e) {}
@@ -298,14 +372,11 @@ async function handleSuggest(j, meta) {
   for (const it of items) {
     const key = (it.title || '').trim();
     if (!key) continue;
-    // 源头去重(最先):按触发原文片段指纹判"这段屏幕事实是否已判过"。
-    // 关键——用输入原文(稳定)而非输出标题(漂移)做身份,拦住"同一条消息被相邻 tick 判成两个标题"。
     const fp = normFact(it.context);
     if (fp && fp.length >= 8) {
       if (factSeen.has(fp)) { log('[dedup] 同一屏幕事实已判过,跳过: ' + key); continue; }
       factSeen.add(fp);
     }
-    // 去重两层:① 本会话内存(titleSeen,免费快) ② 写入层存储(sinkFind,查 vault/Notion 等已有)
     if (isDupTitle(key)) { log('[dedup] 本会话去重跳过: ' + key); continue; }
     let existsInStore = false;
     try { existsInStore = await sinkFind({ title: key }); } catch (e) {}
@@ -317,18 +388,17 @@ async function handleSuggest(j, meta) {
       apps: meta?.apps || [],
       raw: meta?.raw || '',
       ts: new Date().toISOString(),
-      // 出生证:这条待办怎么来的。scene=场景判,trace=工具调用轨迹,steps=轮数。
       birth: {
         scene: meta?.scene ? { name: meta.scene.scene, deliver: meta.scene.deliver, why: meta.scene.why } : null,
         trace: meta?.trace || [],
         steps: meta?.steps || 1,
-        dialog: meta?.dialog || [], // 完整判读对话(可回放):user(屏幕)→assistant(思考+工具)→tool(结果)→…
-        thinking: meta?.thinking || '', // Agent 的自然语言思考(出生证回放用)
+        dialog: meta?.dialog || [],
+        thinking: meta?.thinking || '',
       },
     };
-    ensureSuggFile(); // 写前自愈:文件被误删也不丢这条
+    ensureSuggFile();
     fs.appendFileSync(SUGG_FILE, JSON.stringify(rec) + '\n');
-    backupSugg();     // 写后备份:新捕获立刻进 .bak,防误删/误清
+    backupSugg();
     log('发现隐藏需求: ' + it.title + ' | ' + (it.reason || ''));
   }
 }

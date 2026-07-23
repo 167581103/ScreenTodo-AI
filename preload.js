@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('orb', {
   onSuggestion: (cb) => ipcRenderer.on('suggestion', (e, data) => cb(data)),
   addTodo: (item) => ipcRenderer.send('add-todo', item),
   ignore: (item) => ipcRenderer.send('ignore-todo', item),
+  resizePopup: (height) => ipcRenderer.send('suggestion:resize', height),
   // 工作台
   openWorkspace: () => ipcRenderer.send('open-workspace'),
   getRecall: () => ipcRenderer.invoke('workspace:getRecall'),

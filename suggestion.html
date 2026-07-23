@@ -101,6 +101,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0012 2z"/></svg>
       </div>
       <div id="htxt">发现一个可能的待办</div>
+      <div id="hsrc" style="display:none;font-size:10px;color:var(--text-2);margin-left:auto;padding:2px 8px;border-radius:6px;background:var(--ignore-bg)">Agent</div>
     </div>
     <div id="body">
       <div id="title">—</div>
@@ -114,12 +115,27 @@
   </div>
 <script>
   let current = null;
-  window.orb.onSuggestion((item) => {
+  window.orb.onSuggestion(async (item) => {
     current = item;
     document.getElementById('title').textContent = item.title || '未命名待办';
-    document.getElementById('reason').textContent = item.reason || '';
+    // 使用服务端 Markdown 渲染 reason(Agent 可能输出格式化文本)
+    const reasonEl = document.getElementById('reason');
+    if (item.reason && window.orb.renderMarkdown) {
+      try { const html = await window.orb.renderMarkdown(item.reason); reasonEl.innerHTML = html; } catch (e) { reasonEl.textContent = item.reason; }
+    } else {
+      reasonEl.textContent = item.reason || '';
+    }
     const ctx = document.getElementById('ctx');
     ctx.innerHTML = item.context ? ('<b>屏幕原文</b>　' + escapeHtml(item.context)) : '';
+    // Agent 工具触发的弹窗:显示 Agent 标识
+    const hsrc = document.getElementById('hsrc');
+    hsrc.style.display = item.trigger === 'agent-tool' ? '' : 'none';
+    document.getElementById('htxt').textContent = item.trigger === 'agent-tool' ? 'Agent 发现了这件事' : '发现一个可能的待办';
+    // 动态调整窗口高度:读实际内容高度,通知主进程 resize
+    setTimeout(() => {
+      const h = document.getElementById('card').scrollHeight + 16;
+      if (window.orb.resizePopup) window.orb.resizePopup(h);
+    }, 80);
   });
   document.getElementById('add').addEventListener('click', () => { if (current) window.orb.addTodo(current); });
   document.getElementById('ignore').addEventListener('click', () => { if (current) window.orb.ignore(current); });
