@@ -74,7 +74,8 @@ module.exports = function createAgent(CONFIG, log, tools) {
       body.tools = toolDefs;
       body.tool_choice = 'auto';
     } else if (jsonOut) {
-      body.response_format = { type: 'json_object' }; // 判读末轮:强制出 JSON
+      // 判读模式:不强制 response_format(让模型先写思考再出 JSON)。
+      // 改为在 safeParse 里从"思考+JSON"混合文本中提取 JSON。
     }
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 40000);
@@ -152,9 +153,24 @@ module.exports = function createAgent(CONFIG, log, tools) {
   // 有界 ReAct 循环:messages 已含 system + 首条 user。
   // jsonOut=true(判读)→ 返回解析后的 todo JSON;jsonOut=false(对话)→ 返回 {reply, ...}。
   // emit(可选):agui 事件回调,用于流式交互(仅对话且传入时启用)。
+  // 把内部 messages 精简成"可回放的对话":去 system prompt(太大且无信息),
+  // 保留 user(屏幕/用户问)/assistant(含思考文本+tool_calls)/tool(结果)。
+  function buildDialog(msgs) {
+    return msgs.filter(m => m.role !== 'system').map(m => {
+      if (m.role === 'assistant') {
+        const o = { role: 'assistant', content: m.content || '' };
+        if (m.tool_calls && m.tool_calls.length) o.tool_calls = m.tool_calls.map(c => ({ name: c.function?.name, args: (()=>{try{return JSON.parse(c.function?.arguments||'{}')}catch(e){return{}}})() }));
+        return o;
+      }
+      if (m.role === 'tool') return { role: 'tool', content: String(m.content).slice(0, 600) };
+      return { role: m.role, content: String(m.content).slice(0, 1500) }; // user:屏幕文本可能大,截断
+    });
+  }
+
   async function react(messages, jsonOut, emit) {
     let steps = 0;
     const usage = { hit: 0, total: 0, out: 0, calls: 0 };
+    const trace = []; // 工具调用轨迹(出生证用):{name, args, result摘要}
     // 注:曾用 SSE 流式,但 DeepSeek 流式 + tool_calls 组合下 content 解析不稳(工具轮后返回空)。
     // 改为非流式(已验证稳定),拿到完整 content 后一次性作气泡 emit。可靠优先于逐字流。
     const streamable = false;
@@ -205,6 +221,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
           }
           log(`[tool] ${name}(${JSON.stringify(args).slice(0, 80)}) → ${String(result).length}字`);
           if (emit) emit('TOOL_CALL_END', { toolCallId: c.id, toolName: name || '?', args, result: String(result).slice(0, 4000) });
+          trace.push({ name: name || '?', args, result: String(result).slice(0, 600) }); // 出生证用:工具轨迹
           messages.push({ role: 'tool', tool_call_id: c.id, content: String(result).slice(0, 4000) });
         }
         // 对话模式:工具结果拿到后,追一条指令逼模型基于结果给自然语言答复
@@ -214,21 +231,28 @@ module.exports = function createAgent(CONFIG, log, tools) {
       }
       // 没调工具:最终结论
       if (jsonOut) {
-        const j = safeParse(msg.content);
-        j._steps = steps; j._usage = usage;
+        // 判读模式:模型输出"思考+JSON"混合。分离思考文本(存入对话回放)和 JSON 结论。
+        const raw = msg.content || '';
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        const thinking = jsonMatch ? raw.slice(0, jsonMatch.index).replace(/<\/?思考>/g,'').trim() : raw.trim();
+        const j = jsonMatch ? JSON.parse(jsonMatch[0]) : safeParse(raw);
+        // 把思考文本塞回 messages 里 assistant 的 content(供 buildDialog 回放)
+        if (thinking) messages[messages.length-1] = { ...messages[messages.length-1], content: thinking };
+        j._steps = steps; j._usage = usage; j._trace = trace; j._dialog = buildDialog(messages);
+        j._thinking = thinking; // 思考文本(出生证用)
         return j;
       }
       const reply = (msg.content || '').trim();
-      if (reply) return { reply, _steps: steps, _usage: usage };
+      if (reply) return { reply, _steps: steps, _usage: usage, _trace: trace, _dialog: buildDialog(messages) };
       // 对话模式拿到空回复(常见于:上一轮吐了过渡语+调工具,拿到结果后模型以为已说完)。
       // 追一条明确指令,逼它基于已有信息给用户一个完整答复,而不是留空。
       if (!lastStep) {
         messages.push({ role: 'user', content: '请基于上面的信息,直接给我一个完整的回答(不要再调用工具)。' });
         continue;
       }
-      return { reply: '我这边暂时没有可用的屏幕内容或已捕获记录能回答这个。你可以换个说法，或者告诉我更具体的信息（比如想看哪个 App、哪类待办）？', _steps: steps, _usage: usage };
+      return { reply: '我查了下,没有找到相关内容。要不换个说法或告诉我更具体的信息?', _steps: steps, _usage: usage, _dialog: buildDialog(messages) };
     }
-    return jsonOut ? { suggest: false, _steps: steps, _usage: usage } : { reply: '我这边没能得出结论,要不再说一次?', _steps: steps, _usage: usage };
+    return jsonOut ? { suggest: false, _steps: steps, _usage: usage, _dialog: buildDialog(messages) } : { reply: '我这边没能得出结论,要不再说一次?', _steps: steps, _usage: usage, _dialog: buildDialog(messages) };
   }
 
   const userName = (CONFIG.user && CONFIG.user.name) || 'chancguo(郭辰)';

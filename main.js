@@ -296,6 +296,8 @@ ipcMain.handle('workspace:getMeetings', () => wsData.getMeetings());
 ipcMain.handle('workspace:getRoutines', () => wsData.getRoutines());
 ipcMain.handle('workspace:getTimeline', async () => await wsData.getTimeline());
 ipcMain.handle('workspace:search', (e, q) => wsData.search(q));
+ipcMain.handle('workspace:getRejected', () => wsData.getRejected());
+ipcMain.handle('workspace:restoreRejected', (e, id) => wsData.removeRejected(id));
 
 // ---------- 设置:读写 config.filter(黑/白名单) ----------
 const CONFIG_PATH = path.join(__dirname, 'config.json');
@@ -340,10 +342,24 @@ ipcMain.on('tools:setSources', (e, sources) => {
 
 // ---------- 获取当前运行进程列表(供设置页白/黑名单选择)----------
 const { execSync } = require('child_process');
+// 进程名去重:macOS 部分进程返回的是绝对路径,取最后一段作为应用名
+function normalizeProcName(p) {
+  let s = String(p || '').split(/\s+/).pop(); // 去掉 ps 行前面的 PID
+  s = s.replace(/^.*\//, '');                  // basename
+  s = s.replace(/\.app$/i, '');                // 去 .app 后缀
+  return s;
+}
 ipcMain.handle('settings:running-processes', () => {
   try {
-    const out = execSync('ps -eo comm | sed 1d | sort -u', { encoding: 'utf8', timeout: 3000 });
-    return out.trim().split('\n').filter(Boolean);
+    // 两路:一路 GUI 应用(名字短),一路全部(补全).basename+set 去重
+    const a = execSync('ps -Aco comm 2>/dev/null | sed 1d', { encoding: 'utf8', timeout: 3000 }).trim().split('\n');
+    const b = execSync('ps -axco comm 2>/dev/null | sed 1d', { encoding: 'utf8', timeout: 3000 }).trim().split('\n');
+    const set = new Set();
+    for (const p of a.concat(b)) {
+      const n = normalizeProcName(p);
+      if (n) set.add(n);
+    }
+    return [...set].sort((x, y) => x.localeCompare(y, 'zh-Hans-CN'));
   } catch (e) { log('获取进程列表失败: ' + e.message); return []; }
 });
 
