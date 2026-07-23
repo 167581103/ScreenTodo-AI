@@ -181,6 +181,13 @@ function getRejected() {
       scene: r.scene || null,
       dialog: r.dialog || [], // Agent 判否的完整对话(回放用)
       thinking: r.thinking || '', // Agent 的自然语言思考
+      // 与普通捕获详情使用同一数据形状，供 React DetailDrawer 直接渲染。
+      raw: r.screen || '',
+      birth: {
+        scene: r.scene || null,
+        dialog: r.dialog || [],
+        thinking: r.thinking || '',
+      },
       time: r.ts ? Date.parse(r.ts) : 0,
     });
   }

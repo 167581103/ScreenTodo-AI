@@ -454,7 +454,7 @@ ipcMain.on('chat:stream', async (e, text) => {
       : (r && r._reply) ? r._reply
       : (typeof r === 'string' ? r : (r && r.text) || '(已处理)');
     ses.messages.push({ role: 'user', content: String(text || '') });
-    for (const t of toolsThisRun) ses.messages.push({ role: 'tool', content: t });
+    for (const t of toolsThisRun) ses.messages.push({ role: 'tool', content: t, status: 'done' });
     ses.messages.push({ role: 'assistant', content: reply });
     if (ses.messages.length > 60) ses.messages = ses.messages.slice(-60);
     saveSessions();

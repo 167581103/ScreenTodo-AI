@@ -13,6 +13,7 @@ export interface SessionListResponse {
 export interface Message {
   role: 'user' | 'assistant' | 'tool';
   content: string;
+  status?: 'running' | 'done';
 }
 
 export interface Session extends SessionMeta {

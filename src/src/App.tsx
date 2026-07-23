@@ -318,7 +318,15 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages]);
 
   // ── contenteditable helpers ──
-  const autoGrow = (ta: HTMLDivElement) => { ta.style.height='auto'; ta.style.height=Math.min(120, ta.scrollHeight)+'px'; };
+  const autoGrow = (ta: HTMLDivElement) => {
+    const minHeight = 36;
+    const maxHeight = 104;
+    // 先回到最小高度再测量，避免 flex 容器用上一帧高度反向撑大 scrollHeight。
+    ta.style.height = minHeight + 'px';
+    const contentHeight = ta.scrollHeight;
+    ta.style.height = Math.min(maxHeight, Math.max(minHeight, contentHeight)) + 'px';
+    ta.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+  };
   const getCaretRange = () => { const s=window.getSelection(); const ta=taRef.current; if(s&&s.rangeCount&&ta&&ta.contains(s.anchorNode)) return s.getRangeAt(0).cloneRange(); return null; };
   const caretBeforeChar = () => { const s=window.getSelection(); if(!s||!s.rangeCount) return null; const r=s.getRangeAt(0), n=r.startContainer; if(n&&n.nodeType===3&&r.startOffset>0) return (n.textContent||'')[r.startOffset-1]; return null; };
   const onInput = () => { const ta=taRef.current; if(!ta) return; if(ta.textContent==='') ta.innerHTML=''; autoGrow(ta); setCanSend(!!(ta.textContent||'').replace(/\u200B/g,'').trim()||ta.querySelector('.mention')!=null); if(caretBeforeChar()==='@'){ pendingRangeRef.current=getCaretRange(); openAdd(); } if(sid) chatDrafts.set(sid, sanitizeUserMessageHtml(ta.innerHTML)); };
@@ -482,15 +490,15 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
           case 'TEXT_MESSAGE_START': pending = ''; break;
           case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; break;
           case 'TEXT_MESSAGE_END': setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content:pending }]); pending = ''; break;
-          case 'TOOL_CALL_START': setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?'}]); break;
+          case 'TOOL_CALL_START': setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?',status:'running'}]); break;
           case 'TOOL_CALL_END': setMessages(prev=>{
             let idx = -1;
             for (let i = prev.length - 1; i >= 0; i--) {
-              if (prev[i].role === 'tool' && prev[i].content === ev.toolName) { idx = i; break; }
+              if (prev[i].role === 'tool' && prev[i].status === 'running' && prev[i].content === ev.toolName) { idx = i; break; }
             }
             if (idx < 0) return prev;
             const next = [...prev];
-            next[idx] = { role:'tool', content:'✓ '+ev.toolName };
+            next[idx] = { role:'tool', content:ev.toolName||'?', status:'done' };
             return next;
           }); break;
           case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
@@ -535,7 +543,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
             onInput={onInput}
             onKeyDown={e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); send(); } }}
             suppressContentEditableWarning />
-          <button className="chat-send" onClick={send} disabled={busy||!canSend}>
+          <button className="chat-send" onClick={send} disabled={busy||!canSend} aria-label="发送消息">
             <span className="send-plane"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></span>
             <span className="send-logo"><svg viewBox="0 0 52 52"><path className="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg></span>
           </button>
@@ -605,7 +613,23 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
 }
 
 function ChatBubble({ message }: { message: Message }) {
-  if (message.role==='tool') return <div className="tool-line"><span className="th"><span className="ic">✓</span><span className="sum">{message.content}</span></span></div>;
+  if (message.role==='tool') {
+    // 旧会话没有 status 字段，但其中的工具记录均来自 TOOL_CALL_END，应视为已完成。
+    const running = message.status === 'running';
+    const label = message.content.startsWith('✓ ') ? message.content.slice(2) : message.content;
+    return (
+      <div className={`tool-line${running ? ' running' : ' done'}`}>
+        <span className="th">
+          <span className="ic" aria-hidden="true">
+            {running
+              ? <span className="tool-pending-dot" />
+              : <svg viewBox="14 15 25 23"><path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" /></svg>}
+          </span>
+          <span className="sum">{label}</span>
+        </span>
+      </div>
+    );
+  }
   if (message.role==='user') return <div className="msg u" dangerouslySetInnerHTML={{__html: sanitizeUserMessageHtml(message.content)}} />;
   return <div className="answer" dangerouslySetInnerHTML={{__html:md(message.content)}} />;
 }
@@ -668,16 +692,19 @@ function FeedView({ filter }: { filter: string }) {
         <div className="feed"><div className="empty" dangerouslySetInnerHTML={{__html:ICON_EMPTY+'<div class="t">没有被拒的记录</div><div class="s">Agent 判否的会落在这里，可恢复。</div>'}} /></div>
       </div>
     );
-    return (
+    return (<>
       <div className="canvas">
         <div className="head"><h1>回收站</h1><p className="s">Agent 判否的会落在这里，可恢复。</p></div>
         <div className="feed">{rej.map(it=>(
-          <div key={it.id} className="row rej" data-rid={it.id} onClick={()=>setDetail({...it,kind:'rejected'})}>
+          <div key={it.id} className={`row rej${it.id===selId?' sel':''}`} data-rid={it.id} tabIndex={0}
+            onClick={()=>{ setSelId(it.id); setDetail(it); }}
+            onKeyDown={e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setSelId(it.id); setDetail(it); }}}>
             <div className="tt">{it.title}</div>
             <div className="meta">{fmtTime(it.time)}{it.scene?.name?' · '+it.scene.name:''}</div>
             <div className="ctx"><span className="src">被拒</span>{(it.screen||'').slice(0,80)}</div>
             <button className="restore-btn" onClick={async e=>{e.stopPropagation();
               if(window.orb?.restoreRejected) await window.orb.restoreRejected(it.id);
+              if (detail?.id === it.id) { setSelId(null); setDetail(null); }
               // 重新拉取回收站
               if(window.orb?.getRejected) window.orb.getRejected().then(setRej).catch(()=>{});
               // 触发主数据刷新(5s 内自动生效,但立即触发更快)
@@ -687,7 +714,8 @@ function FeedView({ filter }: { filter: string }) {
           </div>
         ))}</div>
       </div>
-    );
+      {detail && <DetailDrawer item={detail} onClose={()=>{ setSelId(null); setDetail(null); }} />}
+    </>);
   }
 
   let items = data;
@@ -741,6 +769,11 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
   const stCls = item.status==='accepted'?'acc':item.status==='ignored'?'ign':item.kind==='rejected'?'ign':'pend';
   const stTxt = item.status==='accepted'?'已采纳':item.status==='ignored'?'已忽略':item.kind==='rejected'?'被拒':'待处理';
   const apps = (item.apps?.length)?item.apps:(item.tag?[item.tag]:[]);
+  const rejectedThinkingFlow = item.kind==='rejected'
+    ? (item.birth?.dialog?.length
+      ? item.birth.dialog
+      : (item.birth?.thinking ? [{ role:'assistant', content:item.birth.thinking }] : []))
+    : [];
 
   return (<>
     <div className="scrim on" onClick={onClose} />
@@ -757,8 +790,7 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
         {item.kind==='rejected' ? (<>
           {item.raw && <div className="sec"><div className="lbl">屏幕原文</div><div className="rawbox">{item.raw}</div></div>}
           {item.birth?.scene && <div className="sec"><div className="lbl">场景判</div><div className="val mut">{item.birth.scene.name||'—'} · {item.birth.scene.why||''}</div></div>}
-          {item.birth?.thinking && <div className="sec"><div className="lbl">Agent 思考</div><div className="answer" dangerouslySetInnerHTML={{__html:md(item.birth.thinking)}} /></div>}
-          {item.birth?.dialog?.length ? <div className="sec"><div className="lbl">判读对话</div><DialogFlow dialog={item.birth.dialog} /></div> : null}
+          {rejectedThinkingFlow.length ? <div className="sec"><div className="lbl">Agent 思考过程</div><DialogFlow dialog={rejectedThinkingFlow} /></div> : null}
           {item.id && <div className="sec"><button className="restore-btn-detail" onClick={async ()=>{
             if (window.orb?.restoreRejected) await window.orb.restoreRejected(item.id);
             if (window.orb?.getRecall) window.orb.getRecall().then(()=>window.dispatchEvent(new CustomEvent('recall-update')));
