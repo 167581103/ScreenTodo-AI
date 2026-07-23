@@ -25,3 +25,8 @@ docs/
 *.bak
 daemon.lock
 rejected.jsonl
+
+# Vite 构建产物
+dist/
+src/node_modules/
+src/dist/

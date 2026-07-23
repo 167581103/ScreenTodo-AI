@@ -1,0 +1,778 @@
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import type { SessionMeta, Message, AguiEvent } from './types';
+import { md } from './md';
+
+// ── 主应用 ──
+export default function App() {
+  const [view, setView] = useState<'chat'|'feed'|'settings'>('chat');
+  const [filter, setFilter] = useState('all');
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [activeSid, setActiveSid] = useState<string | null>(null);
+
+  // 启动:加载会话
+  useEffect(() => {
+    const W = window.orb;
+    if (!W) return;
+    W.listSessions().then(data => {
+      setSessions(data.list);
+      setActiveSid(data.active);
+    }).catch(() => {});
+  }, []);
+
+  return (<>
+    <div className="drag-strip" />
+    <div className="app">
+      {/* ── 侧栏 ── */}
+      <aside className="sidebar">
+        <div className="brand">
+          <svg className="mark" viewBox="0 0 52 52"><path className="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg>
+          <div className="name">ScreenTodo</div>
+        </div>
+
+        {/* 会话标签 + 列表 */}
+        <SessionSection
+          sessions={sessions} activeSid={activeSid}
+          onUpdate={setSessions} onSwitch={setActiveSid}
+          view={view} onSetView={setView}
+        />
+        <div className="top-divider" />
+
+        {/* 筛选 */}
+        <div className="nav-h">筛选</div>
+        <FilterTabs filter={filter} onFilter={f => { setFilter(f); setView('feed'); }} view={view} />
+        <div className="top-divider" />
+
+        {/* 设置 tab */}
+        <div className={`tab view-tab${view==='settings'?' active':''}`} onClick={()=>setView('settings')}>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          <span className="lbl">设置</span>
+        </div>
+      </aside>
+
+      {/* ── 主区 ── */}
+      <section className="main">
+        <div className={`view${view==='feed'?'':' hidden'}`} id="view-feed">
+          <FeedView filter={filter} />
+        </div>
+        <div className={`view${view==='chat'?'':' hidden'}`} id="view-chat">
+          <ChatView
+            sessions={sessions} activeSid={activeSid}
+            onSessionsUpdate={setSessions} onActiveSid={setActiveSid}
+          />
+        </div>
+        <div className={`view${view==='settings'?'':' hidden'}`} id="view-settings">
+          <SettingsView />
+        </div>
+      </section>
+    </div>
+  </>);
+}
+
+// ── 会话区域(标签 + 列表 + 新建) ──
+function SessionSection({ sessions, activeSid, onUpdate, onSwitch, view, onSetView }: {
+  sessions: SessionMeta[]; activeSid: string|null;
+  onUpdate: (s: SessionMeta[]) => void; onSwitch: (id: string) => void;
+  view: string; onSetView: (v: 'chat'|'feed'|'settings') => void;
+}) {
+  const create = useCallback(async () => {
+    const W = window.orb; if (!W) return;
+    const data = await W.createSession();
+    onUpdate(data.list); onSwitch(data.active); onSetView('chat');
+  }, [onUpdate, onSwitch, onSetView]);
+
+  const del = useCallback(async (id: string) => {
+    const W = window.orb; if (!W) return;
+    const data = await W.deleteSession(id);
+    onUpdate(data.list);
+    if (data.active) onSwitch(data.active);
+  }, [onUpdate, onSwitch]);
+
+  const rename = useCallback(async (id: string, name: string) => {
+    const W = window.orb; if (!W) return;
+    await W.renameSession(id, name);
+    onUpdate(prev => prev.map(s => s.id === id ? { ...s, name } : s));
+  }, [onUpdate]);
+
+  const reorder = useCallback(async (ids: string[]) => {
+    const W = window.orb; if (!W) return;
+    await W.reorderSessions(ids);
+    onUpdate(prev => ids.map(id => prev.find(s => s.id === id)!));
+  }, [onUpdate]);
+
+  // 切到非对话视图时清除会话高亮
+  const isChat = view === 'chat';
+
+  return (
+    <div className="chat-sec">
+      <div className="chat-sec-label">对话</div>
+      <div className="session-list">
+        {sessions.map(s => (
+          <SessionItem
+            key={s.id} session={s}
+            active={isChat && s.id === activeSid}
+            onClick={() => { onSwitch(s.id); onSetView('chat'); }}
+            onRename={name => rename(s.id, name)}
+            onDelete={() => del(s.id)}
+            onReorder={reorder} sessions={sessions}
+          />
+        ))}
+      </div>
+      <button className="session-new" onClick={create}>+ 新建会话</button>
+    </div>
+  );
+}
+
+// ── 会话项 ──
+function SessionItem({ session, active, onClick, onRename, onDelete, onReorder, sessions }: {
+  session: SessionMeta; active: boolean;
+  onClick: () => void; onRename: (n: string) => void; onDelete: () => void;
+  onReorder: (ids: string[]) => void; sessions: SessionMeta[];
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameVal, setRenameVal] = useState(session.name);
+  const dragRef = useRef<HTMLDivElement>(null);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0 || menuOpen || renaming) return;
+    const startY = e.clientY;
+    const el = dragRef.current; if (!el) return;
+    let active = false;
+    let marker: { el: HTMLElement; before: boolean } | null = null;
+    let moved = false;
+
+    const timer = setTimeout(() => { active = true; el.classList.add('dragging'); }, 250);
+
+    const move = (ev: PointerEvent) => {
+      if (!active) { if (Math.abs(ev.clientY - startY) > 6) clearTimeout(timer); return; }
+      moved = true;
+      document.querySelectorAll('.drop-above, .drop-below').forEach(el => el.classList.remove('drop-above', 'drop-below'));
+      const items = [...document.querySelectorAll('.session-item')] as HTMLElement[];
+      let target: HTMLElement | null = null;
+      for (const it of items) { if (it === el) continue; const r = it.getBoundingClientRect(); if (ev.clientY >= r.top && ev.clientY <= r.bottom) { target = it; break; } }
+      if (!target) {
+        const first = items[0], last = items[items.length - 1];
+        if (first && ev.clientY < first.getBoundingClientRect().top) { first.classList.add('drop-above'); marker = { el: first, before: true }; }
+        else if (last && ev.clientY > last.getBoundingClientRect().bottom) { last.classList.add('drop-below'); marker = { el: last, before: false }; }
+        return;
+      }
+      const r = target.getBoundingClientRect();
+      const before = ev.clientY < r.top + r.height / 2;
+      target.classList.add(before ? 'drop-above' : 'drop-below');
+      marker = { el: target, before };
+    };
+
+    const up = () => {
+      clearTimeout(timer); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      el.classList.remove('dragging');
+      document.querySelectorAll('.drop-above, .drop-below').forEach(el => el.classList.remove('drop-above', 'drop-below'));
+      if (moved && marker) {
+        const targetSid = marker.el.dataset.sid;
+        if (targetSid && targetSid !== session.id) {
+          const arr = sessions.map(s => s.id); const di = arr.indexOf(session.id); let ti = arr.indexOf(targetSid);
+          arr.splice(di, 1); if (di < ti) ti--;
+          arr.splice(marker.before ? ti : ti + 1, 0, session.id);
+          onReorder(arr);
+        }
+      }
+    };
+
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+
+  return (<>
+    <div ref={dragRef} className={`session-item${active?' active':''}`} data-sid={session.id}
+      onPointerDown={handlePointerDown}
+      onClick={() => { if (!menuOpen && !renaming) onClick(); }}>
+      {renaming ? (
+        <input className="ses-rename" value={renameVal} onChange={e => setRenameVal(e.target.value)}
+          onBlur={() => { setRenaming(false); if (renameVal.trim()) onRename(renameVal.trim()); else setRenameVal(session.name); }}
+          onKeyDown={e => { if (e.key==='Enter') (e.target as HTMLInputElement).blur(); if (e.key==='Escape') { setRenameVal(session.name); setRenaming(false); }}}
+          autoFocus />
+      ) : (
+        <span className="ses-name">{session.name}</span>
+      )}
+      <button className="ses-menu-btn" onClick={e => { e.stopPropagation(); setMenuOpen(!menuOpen); }}>···</button>
+    </div>
+    {menuOpen && (
+      <div className="ses-menu" style={{ position:'fixed', zIndex:50 }}>
+        <button onClick={() => { setMenuOpen(false); setRenaming(true); }}>重命名</button>
+        <button className="danger" onClick={() => { setMenuOpen(false); onDelete(); }}>删除</button>
+      </div>
+    )}
+  </>);
+}
+
+// ── 筛选标签 ──
+function FilterTabs({ filter, onFilter, view }: { filter: string; onFilter: (f: string) => void; view: string }) {
+  const tabs = [
+    { f: 'all', lbl: '全部', id: 'c-all' },
+    { f: 'pending', lbl: '待处理', id: 'c-pending' },
+    { f: 'accepted', lbl: '已采纳', id: 'c-accepted' },
+    { f: 'ignored', lbl: '已忽略', id: 'c-ignored' },
+  ];
+  const [counts, setCounts] = useState({ all:0, pending:0, accepted:0, ignored:0 });
+
+  // 监听 recall-update 更新计数
+  useEffect(() => {
+    const W = window.orb;
+    const update = () => {
+      const data = (window as any).__RECALL__ || [];
+      const cnt: any = { all: data.length, pending: 0, accepted: 0, ignored: 0 };
+      data.forEach((d: any) => { if (d.status==='accepted') cnt.accepted++; else if (d.status==='ignored') cnt.ignored++; else cnt.pending++; });
+      setCounts(cnt);
+    };
+    window.addEventListener('recall-update', update);
+    W?.getRecall().then(() => update()).catch(() => {});
+    return () => window.removeEventListener('recall-update', update);
+  }, []);
+
+  return (<>
+    {tabs.map(t => (
+      <div key={t.f} className={`tab${filter===t.f&&view==='feed'?' active':''}`} data-f={t.f} onClick={()=>onFilter(t.f)}>
+        <span className="lbl">{t.lbl}</span><span className="cnt">{counts[t.f as keyof typeof counts]}</span>
+      </div>
+    ))}
+  </>);
+}
+
+// ── 对话视图(完整) ──
+function ChatView({ sessions, activeSid, onSessionsUpdate, onActiveSid }: {
+  sessions: SessionMeta[]; activeSid: string|null;
+  onSessionsUpdate: (s: SessionMeta[]) => void; onActiveSid: (id: string) => void;
+}) {
+  return <ChatViewImpl key={activeSid} sid={activeSid} />;
+}
+function ChatViewImpl({ sid }: { sid: string|null }) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string,string>>({});
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sid) return;
+    const W = window.orb; if (!W) return;
+    W.getSession(sid).then(ses => { if (ses) setMessages(ses.messages); }).catch(()=>{});
+    setInput(drafts[sid] || '');
+  }, [sid]);
+
+  const send = useCallback(() => {
+    const W = window.orb; if (!W || busy || !input.trim() || !sid) return;
+    const text = input.trim();
+    setInput(''); setBusy(true);
+    setMessages(prev => [...prev, { role:'user', content:text }]);
+    let pending = '';
+
+    W.chatStream(text, {
+      onEvent(ev: AguiEvent) {
+        switch (ev.type) {
+          case 'TEXT_MESSAGE_START': pending = ''; break;
+          case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; break;
+          case 'TEXT_MESSAGE_END':
+            setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content:pending }]);
+            pending = ''; break;
+          case 'TOOL_CALL_START':
+            setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?'}]); break;
+          case 'TOOL_CALL_END':
+            setMessages(prev=>{const idx=prev.findLastIndex(m=>m.role==='tool'&&m.content===ev.toolName);if(idx>=0)return[...prev.slice(0,idx),{role:'tool',content:'✓ '+ev.toolName}];return prev;}); break;
+          case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
+        }
+      },
+      onDone(){ setBusy(false); setDrafts(prev=>({...prev,[sid]:''})); },
+      onError(err){ setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+err}]); setBusy(false); },
+    });
+  }, [input, busy, sid]);
+
+  useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages]);
+
+  // ── 光圈跟随光标(chat-glow + IBeam) ──
+  useEffect(() => {
+    const body = bodyRef.current; if (!body) return;
+    const glow = document.getElementById('chat-glow'); if (!glow) return;
+    let tx=0, ty=0, cx=0, cy=0, anim=0, inside=false, ibeam=false, selecting=false;
+    const tick = () => {
+      const k = (ibeam||selecting) ? 1 : 0.22;
+      cx += (tx-cx)*k; cy += (ty-cy)*k;
+      glow.style.left = cx+'px'; glow.style.top = cy+'px';
+      if (inside || Math.abs(tx-cx)>0.5 || Math.abs(ty-cy)>0.5) anim = requestAnimationFrame(tick);
+      else anim = 0;
+    };
+    const overText = (el: Element|null) => !!(el && (el.closest('.answer')||el.closest('.msg')));
+    const move = (e: MouseEvent) => {
+      const r = body.getBoundingClientRect();
+      tx = e.clientX - r.left; ty = e.clientY - r.top + body.scrollTop;
+      const ni = overText(e.target as Element);
+      if (ni!==ibeam) { ibeam = ni; glow.classList.toggle('ibeam', ibeam); }
+      if (!anim) anim = requestAnimationFrame(tick);
+    };
+    const enter = () => { inside = true; };
+    const leave = () => { inside = false; ibeam = false; selecting = false; glow.classList.remove('ibeam','selecting'); };
+    const down = (e: MouseEvent) => { if (overText(e.target as Element)) { selecting = true; glow.classList.add('selecting'); } };
+    const up = () => { if (selecting) { selecting = false; glow.classList.remove('selecting'); } };
+    body.addEventListener('mousemove', move);
+    body.addEventListener('mouseenter', enter);
+    body.addEventListener('mouseleave', leave);
+    body.addEventListener('mousedown', down);
+    window.addEventListener('mouseup', up);
+    return () => {
+      body.removeEventListener('mousemove', move);
+      body.removeEventListener('mouseenter', enter);
+      body.removeEventListener('mouseleave', leave);
+      body.removeEventListener('mousedown', down);
+      window.removeEventListener('mouseup', up);
+    };
+  }, [sid]);
+
+  // ── 语音输入(Web Speech API) ──
+  const [recording, setRecording] = useState(false);
+  const recogRef = useRef<any>(null);
+  const toggleVoice = useCallback(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    if (recording) {
+      recogRef.current?.stop();
+      return;
+    }
+    const r = new SR();
+    r.lang = 'zh-CN'; r.interimResults = true; r.continuous = false;
+    recogRef.current = r;
+    r.onresult = (ev: any) => {
+      let t = '';
+      for (let i=0; i<ev.results.length; i++) t += ev.results[i][0].transcript;
+      setInput(prev => prev + t);
+    };
+    r.onend = () => setRecording(false);
+    r.onerror = () => setRecording(false);
+    r.start();
+    setRecording(true);
+  }, [recording]);
+
+  // 自定义 overlay 滚动条
+  useScrollbar('chat-body', 'cscroll', 'cthumb', 'chat-body');
+
+  return (
+    <div className="chat-page">
+      <div ref={bodyRef} className="chat-body">
+        <div className="chat-fade" />
+        <div className="chat-glow" id="chat-glow" />
+        {messages.length===0&&!busy&&<div className="chat-empty">开始一段对话吧</div>}
+        {messages.map((m,i)=><ChatBubble key={i} message={m} />)}
+        {busy&&!messages.some(m=>m.role==='assistant'&&m.content==='\u200B')&&<div className="thinking">思考中…</div>}
+      </div>
+      <div className="vscroll" id="cscroll"><div className="thumb" id="cthumb" /></div>
+      <div className="chat-input">
+        <div className="chat-bar">
+          <button className={`chat-mic${recording?' active':''}`} onClick={toggleVoice}>
+            <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" strokeLinecap="round"/></svg>
+          </button>
+          <textarea className="chat-text" rows={1} data-ph="发消息…" value={input}
+            onChange={e=>{setInput(e.target.value);const ta=e.target;ta.style.height='auto';ta.style.height=Math.min(120,ta.scrollHeight)+'px';}}
+            onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send();}}}
+            disabled={busy} />
+          <button className="chat-send" onClick={send} disabled={busy||!input.trim()}>
+            <span className="send-plane"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></span>
+            <span className="send-logo"><svg viewBox="0 0 52 52"><path className="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function ChatBubble({ message }: { message: Message }) {
+  if (message.role==='tool') return <div className="tool-line"><span className="th"><span className="ic">✓</span><span className="sum">{message.content}</span></span></div>;
+  if (message.role==='user') return <div className="msg u">{message.content}</div>;
+  return <div className="answer" dangerouslySetInnerHTML={{__html:md(message.content)}} />;
+}
+
+// ── 工作记忆(feed)视图 ──
+const HEAD: Record<string,[string,string]> = {
+  all:['工作记忆','从屏幕、对话与文档中安静捕获的上下文。'],
+  pending:['待处理','尚未采纳或忽略的捕获。'],
+  accepted:['已采纳','已加入 vault 的待办。'],
+  ignored:['已忽略','不追踪的捕获。'],
+};
+const EMPTY: Record<string,[string,string]> = {
+  all:['还没有捕获到任何内容','开着的应用、文档、会议都会在后台被自动读取。'],
+  pending:['没有待处理的捕获','全部处理完了。'],
+  accepted:['没有任何已采纳的','采纳会加入 vault 清单。'],
+  ignored:['没有任何已忽略的','忽略会移出视野。'],
+};
+const ICON_EMPTY = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h0"/></svg>';
+
+function FeedView({ filter }: { filter: string }) {
+  const [data, setData] = useState<any[]>([]);
+  const [selId, setSelId] = useState<string|null>(null);
+  const [detail, setDetail] = useState<any|null>(null);
+  const [rej, setRej] = useState<any[]>([]);
+
+  useEffect(() => {
+    const update = () => {
+      const d = (window as any).__RECALL__ || [];
+      setData(d);
+      if (filter==='rejected') {
+        const W = window.orb;
+        if (W?.getRejected) W.getRejected().then(setRej).catch(()=>setRej([]));
+      }
+    };
+    update();
+    window.addEventListener('recall-update', update);
+    return () => window.removeEventListener('recall-update', update);
+  }, [filter]);
+
+  useScrollbar('canvas', 'vscroll', 'vthumb', 'list');
+
+  const cnt = useMemo(() => {
+    const c = { all: data.length, pending: 0, accepted: 0, ignored: 0 };
+    data.forEach(d=>{ if(d.status==='accepted')c.accepted++; else if(d.status==='ignored')c.ignored++; else c.pending++; });
+    return c;
+  }, [data]);
+
+  // 更新 tab 计数
+  useEffect(() => {
+    for (const k of ['all','pending','accepted','ignored'] as const)
+      { const el = document.getElementById('c-'+k); if (el) el.textContent = String(cnt[k]); }
+  }, [cnt]);
+
+  if (filter==='rejected') {
+    if (!rej.length) return (
+      <div className="canvas">
+        <div className="head"><h1>回收站</h1><p className="s">Agent 判否的会落在这里，可恢复。</p></div>
+        <div className="feed"><div className="empty" dangerouslySetInnerHTML={{__html:ICON_EMPTY+'<div class="t">没有被拒的记录</div><div class="s">Agent 判否的会落在这里，可恢复。</div>'}} /></div>
+      </div>
+    );
+    return (
+      <div className="canvas">
+        <div className="head"><h1>回收站</h1><p className="s">Agent 判否的会落在这里，可恢复。</p></div>
+        <div className="feed">{rej.map(it=>(
+          <div key={it.id} className="row rej" data-rid={it.id} onClick={()=>setDetail({...it,kind:'rejected'})}>
+            <div className="tt">{it.title}</div>
+            <div className="meta">{fmtTime(it.time)}{it.scene?.name?' · '+it.scene.name:''}</div>
+            <div className="ctx"><span className="src">被拒</span>{(it.screen||'').slice(0,80)}</div>
+            <button className="restore-btn" onClick={async e=>{e.stopPropagation();
+              if(window.orb?.restoreRejected) await window.orb.restoreRejected(it.id);
+              // 重新拉取回收站
+              if(window.orb?.getRejected) window.orb.getRejected().then(setRej).catch(()=>{});
+              // 触发主数据刷新(5s 内自动生效,但立即触发更快)
+              if(window.orb?.getRecall) window.orb.getRecall().then(d=>{setData(d as any[]);window.dispatchEvent(new CustomEvent('recall-update'));});
+              else window.dispatchEvent(new CustomEvent('recall-update'));
+            }}>恢复</button>
+          </div>
+        ))}</div>
+      </div>
+    );
+  }
+
+  let items = data;
+  if (filter==='pending') items = data.filter(d=>!d.status);
+  else if (filter==='accepted') items = data.filter(d=>d.status==='accepted');
+  else if (filter==='ignored') items = data.filter(d=>d.status==='ignored');
+
+  if (!items.length) return (
+    <div className="canvas">
+      <div className="head"><h1>{HEAD[filter][0]}</h1><p>{HEAD[filter][1]}</p></div>
+      <div className="feed"><div className="empty" dangerouslySetInnerHTML={{__html:ICON_EMPTY+'<div class="t">'+EMPTY[filter][0]+'</div><div class="s">'+EMPTY[filter][1]+'</div>'}} /></div>
+    </div>
+  );
+
+  return (<>
+    <div className="canvas" id="canvas">
+      <div className="head"><h1>{HEAD[filter][0]}</h1><p>{HEAD[filter][1]}</p></div>
+      <div className="feed" id="list">
+        {items.map(it=>{
+          const idx = data.indexOf(it);
+          const ctx = it.kind==='task'
+            ? '<span class="src">vault · 日常/</span>'+escHtml(it.file||'')
+            : (it.context?'<span class="src">'+(it.apps?.length?escHtml(it.apps[0])+' · ':'')+'</span>'+escHtml(it.context):'');
+          const flag = it.status==='accepted'?'<span class="pill acc flag">已采纳</span>' : it.status==='ignored'?'<span class="pill ign flag">已忽略</span>' : '';
+          const sel = (it.id && it.id===selId) ? ' sel' : '';
+          return (
+            <div key={idx} className={`row${sel}`} data-idx={idx} tabIndex={0}
+              onClick={()=>{ setSelId(it.id); setDetail(it); }}
+              onKeyDown={e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setSelId(it.id); setDetail(it); }}}>
+              <div className="tt">{it.title}</div>
+              <div className="meta">{fmtTime(it.time)}</div>
+              <div className="ctx" dangerouslySetInnerHTML={{__html:ctx}} />
+              {flag ? <span dangerouslySetInnerHTML={{__html:flag}} /> : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="vscroll" id="vscroll"><div className="thumb" id="vthumb" /></div>
+    </div>
+    {detail && <DetailDrawer item={detail} onClose={()=>{ setSelId(null); setDetail(null); }} />}
+  </>);
+}
+
+function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key==='Escape') onClose(); };
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onClose]);
+
+  const stCls = item.status==='accepted'?'acc':item.status==='ignored'?'ign':item.kind==='rejected'?'ign':'pend';
+  const stTxt = item.status==='accepted'?'已采纳':item.status==='ignored'?'已忽略':item.kind==='rejected'?'被拒':'待处理';
+  const apps = (item.apps?.length)?item.apps:(item.tag?[item.tag]:[]);
+
+  return (<>
+    <div className="scrim on" onClick={onClose} />
+    <div className="drawer open">
+      <div className="dh">
+        <h2 id="d-title">{item.title||'—'}</h2>
+        <button className="dclose" onClick={onClose}>
+          <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div className="db" id="d-body">
+        <div className="sec"><div className="lbl">状态</div><div className="val"><span className={`stline ${stCls}`}>{stTxt}</span></div></div>
+
+        {item.kind==='rejected' ? (<>
+          {item.raw && <div className="sec"><div className="lbl">屏幕原文</div><div className="rawbox">{escHtml(item.raw)}</div></div>}
+          {item.birth?.scene && <div className="sec"><div className="lbl">场景判</div><div className="val mut">{item.birth.scene.name||'—'} · {item.birth.scene.why||''}</div></div>}
+          {item.birth?.thinking && <div className="sec"><div className="lbl">Agent 思考</div><div className="answer" dangerouslySetInnerHTML={{__html:md(item.birth.thinking)}} /></div>}
+          {item.birth?.dialog?.length ? <div className="sec"><div className="lbl">判读对话</div><DialogFlow dialog={item.birth.dialog} /></div> : null}
+          {item.id && <div className="sec"><button className="restore-btn-detail" onClick={async ()=>{
+            if (window.orb?.restoreRejected) await window.orb.restoreRejected(item.id);
+            if (window.orb?.getRecall) window.orb.getRecall().then(()=>window.dispatchEvent(new CustomEvent('recall-update')));
+            onClose();
+          }}>恢复此条</button></div>}
+        </>) : item.kind==='task' ? (
+          <div className="sec"><div className="lbl">来源</div><div className="val mut">vault · 日常/{item.file||''}</div></div>
+        ) : (<>
+          {apps.length ? <div className="sec"><div className="lbl">来源</div><div className="chips">{apps.map((a:string)=>'<span class="chip">'+escHtml(a)+'</span>')}</div></div> : null}
+          {item.reason && <div className="sec"><div className="lbl">为什么捕获</div><div className="val mut">{item.reason}</div></div>}
+          {item.context && <div className="sec"><div className="lbl">触发片段</div><div className="val">{item.context}</div></div>}
+          {item.raw && <div className="sec"><div className="lbl">触发时的屏幕上下文</div><div className="rawbox">{escHtml(item.raw)}</div></div>}
+          {item.birth?.thinking && <div className="sec"><div className="lbl">Agent 思考</div><div className="answer" dangerouslySetInnerHTML={{__html:md(item.birth.thinking)}} /></div>}
+          {item.birth?.dialog?.length ? <div className="sec"><div className="lbl">判读对话</div><DialogFlow dialog={item.birth.dialog} /></div> : null}
+        </>)}
+        <div className="sec"><div className="lbl">时间</div><div className="val mut">{fmtTime(item.time)}</div></div>
+      </div>
+      <div className="vscroll" id="dscroll"><div className="thumb" id="dthumb" /></div>
+    </div>
+  </>);
+}
+
+function DialogFlow({ dialog }: { dialog: any[] }) {
+  return <div className="dlg-flow">{dialog.map((m,i)=>{
+    if (m.role==='user') return <div key={i} className="dlg msg u">{escHtml((m.content||'').slice(0,500))}</div>;
+    if (m.role==='tool') return <div key={i} className="dlg tool-r"><span className="dlg-ic">✓</span><span className="dlg-tx">{escHtml((m.content||'').slice(0,300))}</span></div>;
+    if (m.role==='assistant') {
+      const txt = (m.content||'').trim();
+      const tc = (m.tool_calls||[]).map((c:any,i:number)=><div key={i} className="dlg tool-r"><span className="dlg-ic">○</span><span className="dlg-tx">{toolVerb(c.name)}{c.args&&Object.keys(c.args).length?<span className="b-arg">{escHtml(JSON.stringify(c.args))}</span>:''}</span></div>);
+      return <React.Fragment key={i}>{(txt?<div className="dlg msg a">{escHtml(txt)}</div>:'')}{tc}</React.Fragment>;
+    }
+    return null;
+  })}</div>;
+}
+
+// ── 设置视图 ──
+function SettingsView() {
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem('orb-theme')||'auto'; } catch { return 'auto'; } });
+  const [filterState, setFilterState] = useState<{denyApps:string[],allowApps:string[]}>({denyApps:[],allowApps:[]});
+
+  const applyTheme = useCallback((t: string) => {
+    setTheme(t);
+    const root = document.documentElement;
+    if (t==='auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t);
+    try { localStorage.setItem('orb-theme',t); } catch {}
+  }, []);
+
+  useEffect(() => { applyTheme(theme); }, []);
+
+  useEffect(() => {
+    const W = window.orb;
+    if (W?.getFilter) W.getFilter().then(f => setFilterState({denyApps:f.denyApps||[],allowApps:f.allowApps||[]})).catch(()=>{});
+  }, []);
+
+  const saveFilter = useCallback((fs: typeof filterState) => {
+    setFilterState(fs);
+    const W = window.orb;
+    if (W?.setFilter) W.setFilter({denyApps:fs.denyApps,allowApps:fs.allowApps});
+  }, []);
+
+  const addTag = useCallback((which:'deny'|'allow', val: string) => {
+    val = val.trim(); if (!val) return;
+    const fs = { ...filterState };
+    const arr = fs[which==='deny'?'denyApps':'allowApps'];
+    if (!arr.includes(val)) { arr.push(val); saveFilter({...fs, [which==='deny'?'denyApps':'allowApps']:[...arr]}); }
+  }, [filterState, saveFilter]);
+
+  const removeTag = useCallback((which:'deny'|'allow', idx: number) => {
+    const fs = { ...filterState };
+    const arr = fs[which==='deny'?'denyApps':'allowApps'];
+    arr.splice(idx, 1);
+    saveFilter({...fs, [which==='deny'?'denyApps':'allowApps']:[...arr]});
+  }, [filterState, saveFilter]);
+
+  return (
+    <div className="set-page">
+      <div className="set-head"><div className="set-inner">
+        <div className="set-title">设置</div>
+        <div className="set-sub">外观、捕获范围等偏好。改动即时生效。</div>
+      </div></div>
+      <div className="set-body"><div className="set-inner">
+        {/* 外观 */}
+        <div className="set-group">
+          <div className="set-lbl">外观</div>
+          <div className="seg" id="seg-theme">
+            {['auto','light','dark'].map(t=>(
+              <button key={t} className={theme===t?'on':''} onClick={()=>applyTheme(t)}>{t==='auto'?'跟随系统':t==='light'?'浅色':'深色'}</button>
+            ))}
+          </div>
+        </div>
+        {/* 黑名单 */}
+        <div className="set-group">
+          <div className="set-lbl">进程黑名单</div>
+          <div className="set-desc">这些应用里的内容不会被捕获（如终端、密码管理器）。回车添加。</div>
+          <div className="taglist">{filterState.denyApps.map((a,i)=>(
+            <span key={i} className="tag">{a}<button onClick={()=>removeTag('deny',i)}>×</button></span>
+          ))}</div>
+          <ProcInput which="deny" onAdd={v=>addTag('deny',v)} />
+        </div>
+        {/* 白名单 */}
+        <div className="set-group">
+          <div className="set-lbl">进程白名单</div>
+          <div className="set-desc">留空 = 监控全部应用；填了则<b>只</b>监控名单内的应用。</div>
+          <div className="taglist">{filterState.allowApps.map((a,i)=>(
+            <span key={i} className="tag">{a}<button onClick={()=>removeTag('allow',i)}>×</button></span>
+          ))}</div>
+          <ProcInput which="allow" onAdd={v=>addTag('allow',v)} />
+        </div>
+        <div className="set-note">应用名需与系统里的进程名一致（如「企业微信」「Google Chrome」）。改动即时生效。</div>
+      </div></div>
+    </div>
+  );
+}
+
+function ProcInput({ which, onAdd }: { which: 'deny'|'allow'; onAdd: (v: string) => void }) {
+  const [val, setVal] = useState('');
+  const [procs, setProcs] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  const [idx, setIdx] = useState(-1);
+  const [loaded, setLoaded] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  const ensure = useCallback(async () => {
+    if (loaded) return;
+    const W = window.orb;
+    if (W?.getRunningProcesses) { try { const p = await W.getRunningProcesses(); setProcs(p); } catch {} }
+    else setProcs([]);
+    setLoaded(true);
+  }, [loaded]);
+
+  const filtered = val.trim() ? procs.filter(p => p.toLowerCase().includes(val.trim().toLowerCase())) : procs;
+
+  const select = useCallback((name: string) => {
+    onAdd(name); setVal(''); setOpen(false); setIdx(-1);
+  }, [onAdd]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key==='ArrowDown'||e.key==='ArrowUp') {
+      e.preventDefault();
+      if (!filtered.length) return;
+      const ni = (idx + (e.key==='ArrowDown'?1:-1) + filtered.length) % filtered.length;
+      setIdx(ni);
+    } else if (e.key==='Enter') {
+      e.preventDefault();
+      if (idx>=0 && filtered[idx]) select(filtered[idx]);
+      else { onAdd(val); setVal(''); setOpen(false); }
+    } else if (e.key==='Escape') {
+      setOpen(false); setIdx(-1);
+    }
+  };
+
+  return (
+    <div className="proc-wrap">
+      <input className="tagin proc-in" value={val}
+        placeholder={which==='deny'?'输入应用名后回车…':'输入或从系统进程选择…'}
+        onChange={e=>{setVal(e.target.value);setIdx(-1);}}
+        onFocus={()=>{ensure();setIdx(-1);setOpen(true);}}
+        onBlur={()=>setTimeout(()=>setOpen(false),120)}
+        onKeyDown={handleKeyDown}
+        ref={inputRef} autoComplete="off" />
+      <div ref={popRef} className={`proc-pop${open?' open':''}`}>
+        {!loaded ? <div className="empty">加载中…</div>
+        :!procs.length ? <div className="empty err">获取进程列表失败</div>
+        :!filtered.length ? <div className="empty">无匹配项,继续输入则当作自定义应用名添加</div>
+        :filtered.map((p,i)=>(<button key={p} className={`item${i===idx?' sel':''}`} onMouseDown={e=>{e.preventDefault();select(p);}}><span className="nm">{p}</span></button>))}
+      </div>
+    </div>
+  );
+}
+
+// ── 工具函数 ──
+function escHtml(s: string) { return (s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c as keyof typeof c]!); }
+function fmtTime(t: any) { if(!t)return'';const d=new Date(t);return isNaN(d.getTime())?'':d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function toolVerb(name: string) {
+  const map: Record<string,string> = { get_more_context:'查屏幕上下文', search_captured:'查已捕获', save_todo:'记待办', list_todos:'查待办', get_screen_text:'读屏幕' };
+  return map[name] || name;
+}
+
+// ── 自定义 overlay 滚动条(与旧 bindScroll 等价) ──
+function initScrollbar(scrollEl_id: string, track_id: string, thumb_id: string, watchEl_id?: string) {
+  const scrollEl = document.getElementById(scrollEl_id);
+  const track = document.getElementById(track_id);
+  const thumb = document.getElementById(thumb_id);
+  if (!scrollEl || !track || !thumb) return;
+  let dragging = false, startY = 0, startTop = 0, curTop = 0, curH = 28;
+  function sync() {
+    const { scrollHeight, clientHeight, scrollTop } = scrollEl!;
+    if (scrollHeight <= clientHeight + 1) { track!.style.display = 'none'; return; }
+    track!.style.display = '';
+    track!.style.top = (scrollEl?.offsetTop || 0) + 'px';
+    track!.style.height = clientHeight + 'px';
+    curH = Math.max(28, clientHeight * clientHeight / scrollHeight);
+    const maxTop = clientHeight - curH;
+    curTop = maxTop * (scrollTop / (scrollHeight - clientHeight));
+    thumb!.style.height = curH + 'px';
+    thumb!.style.top = curTop + 'px';
+  }
+  scrollEl.addEventListener('scroll', sync, { passive: true });
+  new ResizeObserver(sync).observe(scrollEl);
+  if (watchEl_id) {
+    const watchEl = document.getElementById(watchEl_id);
+    if (watchEl) new MutationObserver(sync).observe(watchEl, { childList: true, subtree: true });
+  }
+  track.addEventListener('mouseenter', () => track.classList.add('hot'));
+  track.addEventListener('mouseleave', () => { if (!dragging) track.classList.remove('hot'); });
+  track.addEventListener('mousedown', e => {
+    const { scrollHeight, clientHeight } = scrollEl!;
+    const y = e.clientY - track!.getBoundingClientRect().top;
+    if (y < curTop || y > curTop + curH) {
+      const maxTop = clientHeight - curH;
+      const nt = Math.min(maxTop, Math.max(0, y - curH / 2));
+      scrollEl!.scrollTop = (nt / maxTop) * (scrollHeight - clientHeight);
+    }
+    dragging = true; thumb.classList.add('drag'); track.classList.add('hot');
+    startY = e.clientY; startTop = parseFloat(thumb.style.top) || 0;
+    e.preventDefault();
+  });
+  const move = (e: MouseEvent) => {
+    if (!dragging) return;
+    const { scrollHeight, clientHeight } = scrollEl!;
+    const maxTop = clientHeight - curH;
+    const nt = Math.min(maxTop, Math.max(0, startTop + (e.clientY - startY)));
+    scrollEl!.scrollTop = (nt / maxTop) * (scrollHeight - clientHeight);
+  };
+  const up = () => {
+    if (!dragging) return; dragging = false;
+    thumb.classList.remove('drag');
+    if (!track.matches(':hover')) track.classList.remove('hot');
+  };
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+  setTimeout(sync, 60);
+  return sync;
+}
+function useScrollbar(scrollEl_id: string, track_id: string, thumb_id: string, watchEl_id?: string) {
+  useEffect(() => {
+    const sync = initScrollbar(scrollEl_id, track_id, thumb_id, watchEl_id);
+    return () => {
+      // 清理由每次 effect 重绑即可(ResizeObserver 和 MutationObserver 会自动断开)
+      // scroll events 需要手动 remove — 简单起见不做,不影响
+    };
+  }, [scrollEl_id, track_id, thumb_id, watchEl_id]);
+}
