@@ -759,24 +759,10 @@
     const parts=[];
     parts.push(`<div class="sec"><div class="lbl">状态</div><div class="val"><span class="stline ${stCls}">${stTxt}</span></div></div>`);
     if(it.kind==='rejected'){
-      // 被拒记录:展示屏幕原文 + 判读对话(看 Agent 为什么判否)
+      // 被拒记录:展示屏幕原文 + 场景判 + Agent 思考(完整推理,比截断的对话更可读)
       if(it.raw) parts.push(`<div class="sec"><div class="lbl">屏幕原文</div><div class="rawbox">${esc(it.raw)}</div></div>`);
       if(it.birth && it.birth.scene) parts.push(`<div class="sec"><div class="lbl">场景判</div><div class="val mut">${esc(it.birth.scene.name||'—')} · ${it.birth.scene.why?esc(it.birth.scene.why):''}</div></div>`);
       if(it.birth && it.birth.thinking) parts.push(`<div class="sec"><div class="lbl">Agent 思考</div><div class="answer">${md(it.birth.thinking)}</div></div>`);
-      if(it.birth && it.birth.dialog && it.birth.dialog.length){
-        const d=it.birth.dialog;
-        const bubbles=d.map(m=>{
-          if(m.role==='user') return '<div class="dlg msg u">'+esc((m.content||'').slice(0,500))+'</div>';
-          if(m.role==='tool') return '<div class="dlg tool-r"><span class="dlg-ic">✓</span><span class="dlg-tx">'+esc((m.content||'').slice(0,300))+'</span></div>';
-          if(m.role==='assistant'){
-            const txt=(m.content||'').trim();
-            const tc=(m.tool_calls||[]).map(c=>'<div class="dlg tool-r"><span class="dlg-ic">○</span><span class="dlg-tx">'+esc(toolVerb(c.name))+(c.args&&Object.keys(c.args).length?' <span class="b-arg">'+esc(JSON.stringify(c.args))+'</span>':'')+'</span></div>').join('');
-            return (txt?('<div class="dlg msg a">'+esc(txt)+'</div>'):'')+tc;
-          }
-          return '';
-        }).join('');
-        parts.push(`<div class="sec"><div class="lbl">判读对话</div><div class="dlg-flow">${bubbles}</div></div>`);
-      }
       // 详情里也放恢复按钮
       if(it.id) parts.push(`<div class="sec"><button class="restore-btn-detail" data-rid="${esc(it.id)}">恢复此条</button></div>`);
     } else if(it.kind==='task') parts.push(`<div class="sec"><div class="lbl">来源</div><div class="val mut">vault · 日常/${esc(it.file||'')}</div></div>`);
@@ -785,26 +771,10 @@
       if(it.reason) parts.push(`<div class="sec"><div class="lbl">为什么捕获</div><div class="val mut">${esc(it.reason)}</div></div>`);
       if(it.context) parts.push(`<div class="sec"><div class="lbl">触发片段</div><div class="val">${esc(it.context)}</div></div>`);
       if(it.raw) parts.push(`<div class="sec"><div class="lbl">触发时的屏幕上下文</div><div class="rawbox">${esc(it.raw)}</div></div>`);
-      // 出生证 = 判读对话回放(屏幕↔Agent 的完整对话,和 chat 同形态)。这才是"思考过程"。
+      // 出生证 = Agent 思考(完整自然语言推理)。比截断的对话回放更可读。
+      // 出生证 = Agent 思考(完整自然语言推理,比截断的对话回放更可读)
       if(it.birth && it.birth.thinking) parts.push(`<div class="sec"><div class="lbl">Agent 思考</div><div class="answer">${md(it.birth.thinking)}</div></div>`);
-      if(it.birth && it.birth.dialog && it.birth.dialog.length){
-        const d=it.birth.dialog;
-        const bubbles=d.map(m=>{
-          if(m.role==='user') return '<div class="dlg msg u">'+esc((m.content||'').slice(0,500))+'</div>';
-          if(m.role==='tool') return '<div class="dlg tool-r"><span class="dlg-ic">✓</span><span class="dlg-tx">'+esc((m.content||'').slice(0,300))+'</span></div>';
-          if(m.role==='assistant'){
-            const txt=(m.content||'').trim();
-            const tc=(m.tool_calls||[]).map(c=>'<div class="dlg tool-r"><span class="dlg-ic">○</span><span class="dlg-tx">'+esc(toolVerb(c.name))+(c.args&&Object.keys(c.args).length?' <span class="b-arg">'+esc(JSON.stringify(c.args))+'</span>':'')+'</span></div>').join('');
-            return (txt?('<div class="dlg msg a">'+esc(txt)+'</div>'):'')+tc;
-          }
-          return '';
-        }).join('');
-        parts.push(`<div class="sec"><div class="lbl">判读对话</div><div class="dlg-flow">${bubbles}</div></div>`);
-      } else if(it.birth){
-        // 旧 birth(只有概要没 dialog):折叠显示场景判
-        const b=it.birth;
-        if(b.scene) parts.push(`<div class="sec"><div class="lbl">场景判</div><div class="val mut">${esc(b.scene.name||'—')} · ${b.scene.why?esc(b.scene.why):''}</div></div>`);
-      }
+      else if(it.birth && it.birth.scene) parts.push(`<div class="sec"><div class="lbl">场景判</div><div class="val mut">${esc(it.birth.scene.name||'—')} · ${it.birth.scene.why?esc(it.birth.scene.why):''}</div></div>`);
     }
     parts.push(`<div class="sec"><div class="lbl">时间</div><div class="val mut">${fmtTime(it.time)}</div></div>`);
     document.getElementById('d-body').innerHTML=parts.join('');
@@ -1174,6 +1144,71 @@
   // 工具名 → 人话动作(模块级,实时渲染与历史重放共用)。未知工具降级为原名。
   const TOOL_VERB={ list_todos:'查看待办', search_captured:'搜索记忆', get_more_context:'查看屏幕上下文', save_todo:'记录待办' };
   function toolVerb(name){ return TOOL_VERB[name] || name; }
+
+  // 轻量 markdown 渲染(模块级,openDetail 和 chatPanel 共用)。先转义再替换,防 XSS。
+  function md(s){
+    let t = esc(String(s||'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,''));
+    const blocks=[];
+    t = t.replace(/```([\s\S]*?)```/g, (m,code)=>{ blocks.push(code.replace(/^\n/,'')); return '\u0000CB'+(blocks.length-1)+'\u0000'; });
+    const lines = t.split('\n');
+    let out=[], i=0;
+    while(i<lines.length){
+      let ln=lines[i];
+      const cb=ln.match(/^\u0000CB(\d+)\u0000$/);
+      if(cb){ out.push('<pre><code>'+blocks[+cb[1]]+'</code></pre>'); i++; continue; }
+      if(/^\s*---+\s*$/.test(ln)){ out.push('<hr>'); i++; continue; }
+      let hm=ln.match(/^(#{1,3})\s+(.*)$/);
+      if(hm){ const lv=hm[1].length; out.push('<h'+lv+'>'+mdInline(hm[2])+'</h'+lv+'>'); i++; continue; }
+      if(/^\s*>\s?/.test(ln)){ let q=[]; while(i<lines.length&&/^\s*>\s?/.test(lines[i])){ q.push(mdInline(lines[i].replace(/^\s*>\s?/,''))); i++; } out.push('<blockquote>'+q.join('<br>')+'</blockquote>'); continue; }
+      if(/^\s*\d+\.\s+/.test(ln)){
+        // 处理"1. **加粗标题**"分节模式:合并连续 1. 段(跨空行)为一个 ol,value 续编号 1/2/3...
+        let items=[];
+        let n=0;
+        while(i<lines.length && /^\s*\d+\.\s+/.test(lines[i])){
+          n++;
+          const itemText=lines[i].replace(/^\s*\d+\.\s+/,'');
+          const boldM=itemText.match(/^(\*\*[^*]+\*\*)\s*[-—–]?\s*(.*)$/);
+          if(boldM){
+            const title=mdInline(boldM[1]);
+            const rest=boldM[2]?mdInline(boldM[2]):'';
+            let para=[title+(rest?(' '+rest):'')];
+            i++;
+            // 续行:跳过空行;遇到下一个 1. 让外层处理;遇到真段落边界(标题/引用/列表/分隔)才停
+            while(i<lines.length){
+              if(/^\s*\d+\.\s+/.test(lines[i])) break;     // 下一个 1. → 外层继续
+              if(/^(#{1,3}\s|>\s?|\s*[-*]\s|\s*---+\s*$)/.test(lines[i])) break; // 真块边界
+              if(!/^\s*$/.test(lines[i])) para.push(mdInline(lines[i])); // 非空行才收
+              i++;
+            }
+            items.push('<li value="'+n+'">'+para.join('<br>')+'</li>');
+          } else {
+            items.push('<li value="'+n+'">'+mdInline(itemText)+'</li>'); i++;
+            // 续行跨空行
+            while(i<lines.length){
+              if(/^\s*\d+\.\s+/.test(lines[i])) break;
+              if(/^(#{1,3}\s|>\s?|\s*[-*]\s|\s*---+\s*$)/.test(lines[i])) break;
+              if(!/^\s*$/.test(lines[i])){}
+              i++;
+            }
+          }
+        }
+        out.push('<ol>'+items.join('')+'</ol>'); continue;
+      }
+      if(/^\s*[-*]\s+/.test(ln)){ let items=[]; while(i<lines.length&&/^\s*[-*]\s+/.test(lines[i])){ items.push('<li>'+mdInline(lines[i].replace(/^\s*[-*]\s+/,''))+'</li>'); i++; } out.push('<ul>'+items.join('')+'</ul>'); continue; }
+      if(/^\s*$/.test(ln)){ i++; continue; }
+      let para=[ln]; i++;
+      while(i<lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,3}\s|>\s?|\s*[-*]\s|\s*\d+\.\s|\s*---+\s*$)/.test(lines[i]) && !/^\u0000CB\d+\u0000$/.test(lines[i])){ para.push(lines[i]); i++; }
+      out.push('<p>'+para.map(mdInline).join('<br>')+'</p>');
+    }
+    return out.join('');
+  }
+  function mdInline(s){
+    return s
+      .replace(/`([^`]+)`/g,'<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g,'<em>$1</em>')
+      .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2">$1</a>');
+  }
 
   // 每会话草稿存储(sid → 未发送文本)。切换会话时保存旧、恢复新
   const _drafts = {};
@@ -1767,50 +1802,7 @@
       }catch(e){}
       return res.length>800? res.slice(0,800)+' …' : (res||'（无内容）');
     }
-    // 轻量 markdown 渲染(渲染进程内,同步、零 IPC、零依赖)。覆盖 agent 常用语法:
-    // 标题/加粗/斜体/行内code/代码块/有序无序列表/引用/分割线/链接。先转义再逐条替换,防 XSS。
-    function md(s){
-      // 先剥掉控制字符/占位哨兵:OCR 结果可能含 \u0000 等,会与下面代码块占位冲突 → 渲染坍塌
-      let t = esc(String(s||'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,''));
-      // 代码块 ```...``` (先占位,避免内部被其它规则破坏)
-      const blocks=[];
-      t = t.replace(/```([\s\S]*?)```/g, (m,code)=>{ blocks.push(code.replace(/^\n/,'')); return '\u0000CB'+(blocks.length-1)+'\u0000'; });
-      const lines = t.split('\n');
-      let out=[], i=0;
-      while(i<lines.length){
-        let ln=lines[i];
-        // 代码块占位符独占行
-        const cb=ln.match(/^\u0000CB(\d+)\u0000$/);
-        if(cb){ out.push('<pre><code>'+blocks[+cb[1]]+'</code></pre>'); i++; continue; }
-        // 分割线
-        if(/^\s*---+\s*$/.test(ln)){ out.push('<hr>'); i++; continue; }
-        // 标题
-        let hm=ln.match(/^(#{1,3})\s+(.*)$/);
-        if(hm){ const lv=hm[1].length; out.push('<h'+lv+'>'+inline(hm[2])+'</h'+lv+'>'); i++; continue; }
-        // 引用
-        if(/^\s*>\s?/.test(ln)){ let q=[]; while(i<lines.length&&/^\s*>\s?/.test(lines[i])){ q.push(inline(lines[i].replace(/^\s*>\s?/,''))); i++; } out.push('<blockquote>'+q.join('<br>')+'</blockquote>'); continue; }
-        // 有序列表
-        if(/^\s*\d+\.\s+/.test(ln)){ let items=[]; while(i<lines.length&&/^\s*\d+\.\s+/.test(lines[i])){ items.push('<li>'+inline(lines[i].replace(/^\s*\d+\.\s+/,''))+'</li>'); i++; } out.push('<ol>'+items.join('')+'</ol>'); continue; }
-        // 无序列表
-        if(/^\s*[-*]\s+/.test(ln)){ let items=[]; while(i<lines.length&&/^\s*[-*]\s+/.test(lines[i])){ items.push('<li>'+inline(lines[i].replace(/^\s*[-*]\s+/,''))+'</li>'); i++; } out.push('<ul>'+items.join('')+'</ul>'); continue; }
-        // 空行
-        if(/^\s*$/.test(ln)){ i++; continue; }
-        // 普通段落(合并连续非空非块行)
-        let para=[ln]; i++;
-        while(i<lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,3}\s|>\s?|\s*[-*]\s|\s*\d+\.\s|\s*---+\s*$)/.test(lines[i]) && !/^\u0000CB\d+\u0000$/.test(lines[i])){ para.push(lines[i]); i++; }
-        out.push('<p>'+para.map(inline).join('<br>')+'</p>');
-      }
-      return out.join('');
-    }
-    // 行内:加粗/斜体/行内code/链接
-    function inline(s){
-      return s
-        .replace(/`([^`]+)`/g,'<code>$1</code>')
-        .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
-        .replace(/\*([^*]+)\*/g,'<em>$1</em>')
-        .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2">$1</a>');
-    }
-    // 暴露给外部(历史会话渲染复用同一套同步 md,避免异步 IPC 渲染出 [object Promise])
+    // md/mdInline 已提到模块级(openDetail 和 chatPanel 共用)
     window.__mdRender = md;
 
     async function send(){

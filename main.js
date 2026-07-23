@@ -531,12 +531,7 @@ function openWorkspace() {
     titleBarStyle: 'hidden',
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
-  // React 应用:开发模式走 Vite dev server,生产走构建产物 dist/index.html
-  if (process.env.VITE_DEV) {
-    workspaceWin.loadURL('http://localhost:5173');
-  } else {
-    workspaceWin.loadFile(path.join(__dirname, 'dist', 'index.html'));
-  }
+  workspaceWin.loadFile('workspace.html');
   workspaceWin.once('ready-to-show', () => workspaceWin.show());
   if (process.env.ORB_DEVTOOLS) workspaceWin.webContents.openDevTools({ mode: 'detach' });
   // 主进程注入数据数组到 window.__RECALL__,由 workspace.html 渲染(tab/详情/点击都在渲染层)
