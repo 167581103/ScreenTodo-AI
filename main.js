@@ -256,7 +256,7 @@ function processSuggestions() {
       if (!rec.id || shownIds.has(rec.id)) continue;
       shownIds.add(rec.id);
       stats.suggestions++;
-      showSuggestion({ ...rec.item, _id: rec.id });
+      showSuggestion({ ...rec.item, _id: rec.id, apps: rec.apps || [], raw: rec.raw || '', trigger: rec.trigger || '' });
     }
   } catch (e) {
     log('读建议错误: ' + e.message);
@@ -286,6 +286,12 @@ ipcMain.on('toggle-monitor', () => {
 });
 ipcMain.on('add-todo', (e, item) => { addTodo(item); dismissSuggestion(); });
 ipcMain.on('ignore-todo', (e, item) => { if (item && item._id) logDecision(item._id, 'ignored'); dismissSuggestion(); });
+ipcMain.on('suggestion:resize', (e, height) => {
+  if (suggWin && !suggWin.isDestroyed()) {
+    const h = Math.max(160, Math.min(Number(height) || 200, 560));
+    suggWin.setBounds({ width: 380, height: h }, false);
+  }
+});
 ipcMain.on('quit-app', () => app.quit());
 ipcMain.handle('get-state', () => ({ monitoring, stats }));
 
