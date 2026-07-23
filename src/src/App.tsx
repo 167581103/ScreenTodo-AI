@@ -605,7 +605,22 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
 }
 
 function ChatBubble({ message }: { message: Message }) {
-  if (message.role==='tool') return <div className="tool-line"><span className="th"><span className="ic">✓</span><span className="sum">{message.content}</span></span></div>;
+  if (message.role==='tool') {
+    const done = message.content.startsWith('✓ ');
+    const label = done ? message.content.slice(2) : message.content;
+    return (
+      <div className={`tool-line${done ? '' : ' running'}`}>
+        <span className="th">
+          <span className="ic" aria-hidden="true">
+            <svg viewBox="14 15 25 23">
+              <path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" />
+            </svg>
+          </span>
+          <span className="sum">{label}</span>
+        </span>
+      </div>
+    );
+  }
   if (message.role==='user') return <div className="msg u" dangerouslySetInnerHTML={{__html: sanitizeUserMessageHtml(message.content)}} />;
   return <div className="answer" dangerouslySetInnerHTML={{__html:md(message.content)}} />;
 }
