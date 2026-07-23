@@ -53,7 +53,7 @@ export interface OrbAPI {
   renameSession: (id: string, name: string) => Promise<{ id: string; name: string } | null>;
   switchSession: (id: string) => Promise<Session>;
   reorderSessions: (ids: string[]) => Promise<{ ok: boolean }>;
-  chatStream: (payload: string | { text: string; html?: string }, handlers: {
+  chatStream: (payload: string | { text: string; html?: string; sessionId?: string }, handlers: {
     onEvent?: (ev: AguiEvent) => void;
     onDone?: (result: { reply?: string }) => void;
     onError?: (err: string) => void;

@@ -96,6 +96,16 @@ function SessionSection({ sessions, activeSid, onUpdate, onSwitch, view, onSetVi
     onUpdate(data.list); onSwitch(data.active); onSetView('chat');
   }, [onUpdate, onSwitch, onSetView]);
 
+  const switchTo = useCallback(async (id: string) => {
+    const W = window.orb;
+    // 主进程 active 必须与 UI 同步，否则 chat:stream 会写到错误会话
+    if (W) {
+      try { await W.switchSession(id); } catch (_) {}
+    }
+    onSwitch(id);
+    onSetView('chat');
+  }, [onSwitch, onSetView]);
+
   const del = useCallback(async (id: string) => {
     const W = window.orb; if (!W) return;
     const data = await W.deleteSession(id);
@@ -129,7 +139,7 @@ function SessionSection({ sessions, activeSid, onUpdate, onSwitch, view, onSetVi
           <SessionItem
             key={s.id} session={s}
             active={isChat && s.id === activeSid}
-            onClick={() => { onSwitch(s.id); onSetView('chat'); }}
+            onClick={() => { switchTo(s.id); }}
             onRename={name => rename(s.id, name)}
             onDelete={() => del(s.id)}
             onReorder={reorder} sessions={sessions}
@@ -491,7 +501,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
     setMessages(prev => [...prev, { role:'user', content: sendText, html: msgHTML }]);
     ta.innerHTML = ''; autoGrow(ta); chatDrafts.set(sid, ''); setCanSend(false); closeAdd();
     let pending = '';
-    W.chatStream({ text: sendText, html: msgHTML }, {
+    W.chatStream({ text: sendText, html: msgHTML, sessionId: sid }, {
       onEvent(ev: AguiEvent) {
         switch (ev.type) {
           case 'TEXT_MESSAGE_START': pending = ''; break;
