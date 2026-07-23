@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/* 设计 tokens — 与旧 workspace.html 的 :root 变量一致,供 Tailwind 和组件引用 */
+:root {
+  --bg: #FBFBFC;
+  --panel: #F4F5F7;
+  --raised: #FFFFFF;
+  --line: #E8E9EB;
+  --line-2: #DEE0E5;
+  --ink: #1B1C1F;
+  --ink-2: #5A5C64;
+  --ink-3: #7C7E87;
+  --accent: #4B5BD6;
+  --accent-ink: #3A47B0;
+  --accent-wash: #ECEEFB;
+  --ok: #22A665;
+  --off: #E5484D;
+  --off-wash: #FEE9EA;
+  --e-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --overlay-h: 28px;
+
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="dark"] {
+  --bg: #111214;
+  --panel: #1A1C20;
+  --raised: #22242B;
+  --line: #2A2C31;
+  --line-2: #34363C;
+  --ink: #ECEDF0;
+  --ink-2: #AEB0B8;
+  --ink-3: #7E808A;
+  --accent: #8A97F2;
+  --accent-ink: #AAB4F6;
+  --accent-wash: #25283A;
+  --off-wash: #2E1D1F;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111214;
+    --panel: #1A1C20;
+    --raised: #22242B;
+    --line: #2A2C31;
+    --line-2: #34363C;
+    --ink: #ECEDF0;
+    --ink-2: #AEB0B8;
+    --ink-3: #7E808A;
+    --accent: #8A97F2;
+    --accent-ink: #AAB4F6;
+    --accent-wash: #25283A;
+    --off-wash: #2E1D1F;
+  }
+}
+
+::selection {
+  background: var(--accent-wash);
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 拖拽插入指示线显隐 */
+.drop-above.hidden, .drop-below.hidden { display: none; }
+[data-draggable].drop-above > .drop-above.hidden { display: block; }
+[data-draggable].drop-below > .drop-below.hidden { display: block; }
+
+/* scrollbar-none 工具类 */
+.scrollbar-none::-webkit-scrollbar { width: 0; height: 0; }
+.scrollbar-none { scrollbar-width: none; }
