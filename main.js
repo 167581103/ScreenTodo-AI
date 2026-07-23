@@ -531,7 +531,7 @@ function openWorkspace() {
     titleBarStyle: 'hidden',
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
-  workspaceWin.loadFile('workspace.html');
+  workspaceWin.loadFile('dist/index.html');
   workspaceWin.once('ready-to-show', () => workspaceWin.show());
   if (process.env.ORB_DEVTOOLS) workspaceWin.webContents.openDevTools({ mode: 'detach' });
   // 主进程注入数据到 window.__RECALL__,触发 recall-update 自定义事件供 React 渲染

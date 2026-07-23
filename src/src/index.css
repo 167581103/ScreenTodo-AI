@@ -284,10 +284,9 @@
   /* 用户输入 = 气泡(右侧)。中性浅灰底、无边框;深色模式用半透明 ink 叠加自适应 */
   .msg{max-width:78%;padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
   .msg.u{}
-  .msg.u .mention{color:var(--accent-ink);font-weight:600;white-space:nowrap}
-  .msg.u .mention-at{font-size:.7em;opacity:.55;color:var(--ink-2);margin-right:1px;font-weight:500}
+  .msg.u .mention{color:#5868E0;font-weight:600;white-space:nowrap}
   .msg.u .ref-hint{margin-top:6px;font-size:12.5px;color:var(--ink-3);line-height:1.6}
-  .msg.u .ref-label{color:var(--accent-ink);font-weight:600}
+  .msg.u .ref-label{color:#5868E0;font-weight:600}
   .msg.u{align-self:flex-end;background:#F3F3F4;color:var(--ink);border-bottom-right-radius:5px}
   :root[data-theme=dark] .msg.u{background:color-mix(in srgb,var(--ink) 12%,transparent)}
   @media (prefers-color-scheme:dark){:root:not([data-theme=light]) .msg.u{background:color-mix(in srgb,var(--ink) 12%,transparent)}}
@@ -360,8 +359,7 @@
   .chat-text::-webkit-scrollbar{width:0}
   .chat-text:empty:before{content:attr(data-ph);color:var(--ink-3);pointer-events:none}
   /* @引用:黑白风格渲染(实际是给 Agent 的调用提示) */
-  .chat-text .mention{color:var(--accent-ink);font-weight:600;white-space:nowrap;cursor:default;user-select:none}
-  .chat-text .mention-at{font-size:.7em;opacity:.55;color:var(--ink-2);margin-right:1px;font-weight:500}
+  .chat-text .mention{color:#5868E0;font-weight:600;white-space:nowrap;cursor:default;user-select:none}
 
   /* 圆形「+」按钮:合并原语音 / 工具入口 */
   .chat-add{

@@ -4,13 +4,23 @@
   "description": "本地悬浮球:实时监听屏幕,发现隐藏需求主动弹窗添加待办",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "devDependencies": {
-    "electron": "^32.0.0"
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^32.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0"
   },
   "dependencies": {
     "dompurify": "^3.4.12",
-    "marked": "^18.0.7"
+    "marked": "^18.0.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   }
 }
