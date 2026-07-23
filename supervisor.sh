@@ -9,7 +9,11 @@
 # 注:WorkBuddy 会给 NODE_OPTIONS 注入 --use-system-ca,electron 二进制拒绝它,故启动 electron 时 -u NODE_OPTIONS。
 cd "$(dirname "$0")"
 PROJ_DIR="$PWD"
-NODE_BIN="${ORB_NODE_BIN:-/Users/apple/.workbuddy/binaries/node/versions/22.22.2/bin/node}"
+NODE_BIN="${ORB_NODE_BIN:-$(command -v node)}"
+if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
+  echo "[$(date)] 找不到 Node.js，请设置 ORB_NODE_BIN" >> supervisor.log
+  exit 1
+fi
 SP_BIN="${ORB_SP_BIN:-screenpipe}"
 SP_DATA="${ORB_SP_DATA:-$PROJ_DIR/.screenpipe}"
 # 从 config.json 读取 Screenpipe API key,注入环境变量,保证自愈重启 screenpipe 后 daemon 仍鉴权通过

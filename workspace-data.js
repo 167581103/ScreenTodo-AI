@@ -13,7 +13,7 @@ const os = require('os');
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
 const DECISIONS_FILE = path.join(__dirname, 'decisions.jsonl');
 const REJECT_FILE = path.join(__dirname, 'rejected.jsonl');
-const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/chancguo/Todo/todo/日常';
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || path.join(os.homedir(), 'Todo', 'todo', '日常');
 const LIFEOS_PLAN = path.join(os.homedir(), 'life-os/规划/阶段性目标.md');
 const SCREENPIPE = 'http://localhost:3030';
 // Screenpipe API 需 Bearer 鉴权(与 daemon fetchRaw / main.js screenRecent 一致)

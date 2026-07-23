@@ -1,0 +1,247 @@
+:root {
+  --surface: #ffffff;
+  --surface-2: #f4f5f7;
+  --line: rgba(20, 20, 23, 0.1);
+  --title: #1b1c1f;
+  --text: #54565e;
+  --muted: #737680;
+  --accent: #4b5bd6;
+  --accent-hover: #3a47b0;
+  --accent-wash: #eceefb;
+  --secondary: #f0f1f4;
+  --secondary-hover: #e5e6ea;
+  --shadow: 0 8px 16px rgba(20, 20, 28, 0.15);
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1c1d21;
+    --surface-2: #25262b;
+    --line: rgba(255, 255, 255, 0.1);
+    --title: #ecedf0;
+    --text: #aeb0b8;
+    --muted: #8d9099;
+    --accent: #8a97f2;
+    --accent-hover: #aab4f6;
+    --accent-wash: #292c40;
+    --secondary: #292a30;
+    --secondary-hover: #33353c;
+    --shadow: 0 8px 16px rgba(0, 0, 0, 0.42);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#suggestion-root {
+  width: 380px;
+  min-height: 160px;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+body,
+button {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.suggestion-shell {
+  padding: 8px;
+}
+
+.suggestion-card {
+  overflow: hidden;
+  color: var(--title);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  animation: suggestion-enter 180ms var(--ease-out);
+}
+
+.suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.suggestion-icon {
+  display: grid;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: var(--accent);
+  background: var(--accent-wash);
+  border-radius: 8px;
+}
+
+.suggestion-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.suggestion-eyebrow {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.suggestion-source {
+  flex: none;
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-wash);
+  border-radius: 6px;
+}
+
+.suggestion-body {
+  max-height: 420px;
+  padding: 13px 16px 4px;
+  overflow-y: auto;
+}
+
+.suggestion-body h1 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.suggestion-reason {
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.suggestion-reason :is(p, ul, ol, blockquote) {
+  margin: 0 0 6px;
+}
+
+.suggestion-reason :last-child {
+  margin-bottom: 0;
+}
+
+.suggestion-reason ul,
+.suggestion-reason ol {
+  padding-left: 18px;
+}
+
+.suggestion-reason code {
+  padding: 1px 4px;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+.suggestion-context {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.suggestion-context strong {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.suggestion-context span {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.suggestion-actions {
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px 14px;
+}
+
+.suggestion-actions button {
+  flex: 1;
+  height: 42px;
+  border: 0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-out), color 140ms var(--ease-out), transform 100ms var(--ease-out);
+}
+
+.suggestion-actions button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.suggestion-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.suggestion-actions button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.suggestion-actions .primary {
+  color: #fff;
+  background: var(--accent);
+}
+
+.suggestion-actions .primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.suggestion-actions .secondary {
+  color: var(--text);
+  background: var(--secondary);
+}
+
+.suggestion-actions .secondary:hover:not(:disabled) {
+  color: var(--title);
+  background: var(--secondary-hover);
+}
+
+@keyframes suggestion-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .suggestion-card {
+    animation: none;
+  }
+
+  .suggestion-actions button {
+    transition: none;
+  }
+}

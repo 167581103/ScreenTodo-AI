@@ -22,9 +22,14 @@ if pgrep -f "$PROJ_DIR/node_modules/electron" >/dev/null 2>&1; then
   exit 0
 fi
 
-rm -f orb_run.log daemon.out suggestions.jsonl monitor.paused
+# 重启只清理日志和暂停标记；suggestions.jsonl 是用户捕获历史，不能在正常启动时删除。
+rm -f orb_run.log daemon.out monitor.paused
 # 守护进程:网络逻辑,Node 原生 fetch 稳定(用受管 node)
-NODE_BIN="${ORB_NODE_BIN:-/Users/apple/.workbuddy/binaries/node/versions/22.22.2/bin/node}"
+NODE_BIN="${ORB_NODE_BIN:-$(command -v node)}"
+if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
+  echo "❌ 找不到 Node.js。请安装 Node 22+ 或设置 ORB_NODE_BIN。"
+  exit 1
+fi
 nohup "$NODE_BIN" daemon.js > daemon.out 2>&1 &
 disown
 

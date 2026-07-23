@@ -4,6 +4,7 @@
 // 第 N+1 轮请求的整个前缀(历史对话)都被 DeepSeek prefix cache 命中,只有本轮增量 miss → 命中率趋近 98%。
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { execFileSync } = require('child_process');
 const { sinkFind } = require('./sink.js'); // 写入层去重:查 todo 是否已存在于配置的存储
 const { sanitizeFrame } = require('./sanitize.js'); // 输入预处理:剥离导航态/UI chrome 噪声
@@ -24,9 +25,10 @@ function log(m) {
 // 语义层(核心算法)独立在 judge.js。daemon 只负责编排:取帧→预处理→[judge]→去重→写入。
 // 判读 Agent 内核(有工具、有界 ReAct)。工具 get_more_context 让它在指代/上下文不全时自主补帧再判。
 const createAgent = require('./agent.js');
+const { popupRequestsFromTrace, shouldRecordRejected } = require('./popup-trace');
 // 工具:拉某来源(app)最近更多帧的文本,用于补全"这个/它"等指代 & 跨帧前文。
-// 判读中 Agent 通过 show_popup 工具排队的待弹窗项,判读结束后由 handleSuggest 统一写入并附带完整出生证。
-const toolPopups = [];
+// show_popup 不在这里维护全局队列。每次 Agent run 的工具调用已经记录在返回值 _trace 中，
+// handleSuggest 只消费当前 run 的 trace，避免并行判读时把其他区域的弹窗和出生证串在一起。
 
 const agentTools = {
   get_more_context: {
@@ -62,7 +64,7 @@ const agentTools = {
   },
 
   // ── 弹窗通知：Agent 自主决定是否弹出建议给用户 ──
-  // 工具只排队,不直接写文件;判读结束后 handleSuggest 统一写入带完整出生证(思考+对话)的记录。
+  // 工具本身只确认参数；真正写文件在 handleSuggest 中根据当前 run 的 trace 完成。
   show_popup: {
     def: {
       type: 'function',
@@ -83,13 +85,7 @@ const agentTools = {
     run: async (args) => {
       const key = (args.title || '').trim();
       if (!key) return '(show_popup 失败: title 不能为空)';
-      // 本轮内去重:同一标题不重复排队
-      if (toolPopups.some(t => t.item.title.trim() === key)) return `(跳过: "${key}" 已在本轮排队中)`;
-      toolPopups.push({
-        item: { title: args.title, reason: args.reason, context: args.context || '' },
-        raw: args.context || '',
-      });
-      log('[tool:show_popup] queued: ' + key + ' | ' + (args.reason || ''));
+      log('[tool:show_popup] requested: ' + key + ' | ' + (args.reason || ''));
       return `已记录弹窗: "${args.title}"。本轮判读完成后会自动弹出通知给用户。`;
     },
   },
@@ -178,12 +174,15 @@ async function fetchRaw(limit, sinceTs) {
 // 用于几何窗口分割。查不到/出错则返回空 map,分割自动退回拼平文本。
 const SP_DB = (() => {
   try {
-    const base = (CONFIG.screenpipe.dataDir) || path.join(path.dirname(__dirname), '.screenpipe');
-    // 常见位置:项目上级 .screenpipe/db.sqlite;也兼容 Todo/.screenpipe
-    const cands = [
-      path.join('/Users/apple/WorkBuddy/Todo/.screenpipe', 'db.sqlite'),
-      path.join(base, 'db.sqlite'),
-    ];
+    const configured = process.env.ORB_SP_DATA || CONFIG.screenpipe?.dataDir;
+    // 优先显式配置，其次兼容工作区、项目目录和用户目录下的常见位置。
+    const dirs = [
+      configured,
+      path.join(path.dirname(__dirname), '.screenpipe'),
+      path.join(__dirname, '.screenpipe'),
+      path.join(os.homedir(), '.screenpipe'),
+    ].filter(Boolean);
+    const cands = [...new Set(dirs)].map(dir => path.join(dir, 'db.sqlite'));
     for (const c of cands) if (fs.existsSync(c)) return c;
   } catch (e) {}
   return null;
@@ -312,9 +311,9 @@ async function fetchContext() {
 }
 
 async function handleSuggest(j, meta) {
-  // ── 第一阶段：处理 Agent 通过 show_popup 工具排队的弹窗 ──
-  // 工具在判读中间调用,只排队不写文件;这里统一写入,附带完整出生证(真实思考+对话回放)。
-  const tp = toolPopups.splice(0);
+  // ── 第一阶段：处理当前 Agent run 通过 show_popup 发出的请求 ──
+  // 每次 run 的 trace 天然隔离；即使 judgeGroups 并行执行，也不会消费到其他区域的弹窗。
+  const tp = popupRequestsFromTrace(meta?.trace);
   for (const te of tp) {
     const key = (te.item.title || '').trim();
     if (!key) continue;
@@ -325,15 +324,16 @@ async function handleSuggest(j, meta) {
       factSeen.add(fp);
     }
     if (isDupTitle(key)) { log('[tool-popup dedup] 本会话去重跳过: ' + key); continue; }
+    // 在异步查 sink 前先占位，避免两个并行区域同时通过检查后重复写入同一标题。
+    titleSeen.add(key);
     let existsInStore = false;
     try { existsInStore = await sinkFind({ title: key }); } catch (e) {}
-    if (existsInStore) { log('[tool-popup dedup] 存储已有,跳过: ' + key); titleSeen.add(key); continue; }
-    titleSeen.add(key);
+    if (existsInStore) { log('[tool-popup dedup] 存储已有,跳过: ' + key); continue; }
     const rec = {
       id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       item: te.item,
       apps: meta?.apps || [],
-      raw: te.raw || meta?.raw || '',
+      raw: meta?.raw || te.item.context || '',
       ts: new Date().toISOString(),
       trigger: 'agent-tool',
       birth: {
@@ -354,8 +354,10 @@ async function handleSuggest(j, meta) {
   let items = [];
   if (Array.isArray(j.items)) items = j.items;
   else if (j.suggest && j.title) items = [j];
+  // 新版 prompt 以 show_popup 为正向结论，随后只输出自然语言；safeParse 会把自然语言视为
+  // suggest:false。只要当前 run 调过 show_popup，就不能再把同一屏幕写进 rejected.jsonl。
   // 被拒(suggest=false):存进 rejected.jsonl 作"回收站",可恢复。
-  if (!j.suggest || !items.length) {
+  if (shouldRecordRejected(j, tp.length, items.length)) {
     if (meta && meta.raw) {
       const rj = {
         id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
@@ -378,10 +380,10 @@ async function handleSuggest(j, meta) {
       factSeen.add(fp);
     }
     if (isDupTitle(key)) { log('[dedup] 本会话去重跳过: ' + key); continue; }
+    titleSeen.add(key);
     let existsInStore = false;
     try { existsInStore = await sinkFind({ title: key }); } catch (e) {}
-    if (existsInStore) { log('[dedup] 存储已有,跳过: ' + key); titleSeen.add(key); continue; }
-    titleSeen.add(key);
+    if (existsInStore) { log('[dedup] 存储已有,跳过: ' + key); continue; }
     const rec = {
       id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       item: it,
@@ -424,7 +426,9 @@ async function judgeGroups(inc, label) {
     log(`[${label}:scene] ${g.sc.scene} · 可能派活 → 进细判`);
     jobs.push(judge(g.text).then(j => {
       log(`[${label}:judge] suggest=` + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
-      return handleSuggest(j, { apps: inc.apps, raw: g.text.slice(0, 2000), scene: g.sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
+      const appMatch = g.key.match(/^\[([^·\]]+)/);
+      const groupApps = appMatch ? [appMatch[1]] : inc.apps;
+      return handleSuggest(j, { apps: groupApps, raw: g.text.slice(0, 2000), scene: g.sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
     }));
   }
   if (jobs.length) await Promise.all(jobs);
@@ -470,7 +474,7 @@ async function tick() {
 }
 
 // Obsidian vault 日常/ 目录:接入真正的 todo 文件系统做机械去重(可环境变量覆盖)
-const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/chancguo/Todo/todo/日常';
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || path.join(os.homedir(), 'Todo', 'todo', '日常');
 
 // 扫描 vault 所有任务标题(- [ ]/- [x]/- [-]),加入 titleSeen。
 // 这样"我早已记过(甚至已完成)的事"再出现在屏幕上不会重复弹。

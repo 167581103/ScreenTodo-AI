@@ -1,6 +1,5 @@
 // preload.js — 安全暴露 IPC 给渲染进程
-// 注意:electron 默认 sandbox:true,preload 里不能 require 第三方模块(会崩溃导致 orb 不暴露)。
-// 所以只 require electron 内置;markdown 渲染放主进程,经 IPC 调用。
+// 注意:electron 默认 sandbox:true,preload 里只 require Electron 内置模块。
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('orb', {
@@ -10,7 +9,11 @@ contextBridge.exposeInMainWorld('orb', {
   quit: () => ipcRenderer.send('quit-app'),
   getState: () => ipcRenderer.invoke('get-state'),
   // 建议弹窗
-  onSuggestion: (cb) => ipcRenderer.on('suggestion', (e, data) => cb(data)),
+  onSuggestion: (cb) => {
+    const listener = (e, data) => cb(data);
+    ipcRenderer.on('suggestion', listener);
+    return () => { ipcRenderer.removeListener('suggestion', listener); };
+  },
   addTodo: (item) => ipcRenderer.send('add-todo', item),
   ignore: (item) => ipcRenderer.send('ignore-todo', item),
   resizePopup: (height) => ipcRenderer.send('suggestion:resize', height),
@@ -61,6 +64,4 @@ contextBridge.exposeInMainWorld('orb', {
     ipcRenderer.send('chat:stream', text);
   },
   chatReset: () => ipcRenderer.invoke('chat:reset'),
-  // Markdown 渲染(在主进程做,已 sanitize)
-  renderMarkdown: (md) => ipcRenderer.invoke('chat:renderMarkdown', md),
 });

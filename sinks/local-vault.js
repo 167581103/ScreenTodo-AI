@@ -5,10 +5,12 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { execFileSync } = require('child_process');
 
-const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/apple/Todo/todo/日常';
-const TODO_WRITE = process.env.ORB_TODO_WRITE || '/Users/apple/WorkBuddy/Todo/scripts/todo_write.py';
+const WORKSPACE_ROOT = path.resolve(__dirname, '..', '..');
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || path.join(os.homedir(), 'Todo', 'todo', '日常');
+const TODO_WRITE = process.env.ORB_TODO_WRITE || path.join(WORKSPACE_ROOT, 'scripts', 'todo_write.py');
 const PYTHON = process.env.ORB_PYTHON || 'python3';
 
 const norm = (s) => (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
