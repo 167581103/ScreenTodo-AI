@@ -850,10 +850,10 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
   const stCls = item.status==='accepted'?'acc':item.status==='ignored'?'ign':item.kind==='rejected'?'ign':'pend';
   const stTxt = item.status==='accepted'?'已采纳':item.status==='ignored'?'已忽略':item.kind==='rejected'?'被拒':'待处理';
   const apps = (item.apps?.length)?item.apps:(item.tag?[item.tag]:[]);
-  const rejectedThinkingFlow = item.kind==='rejected'
+  const rejectedThinkingMessages = item.kind==='rejected'
     ? (item.birth?.dialog?.length
-      ? item.birth.dialog
-      : (item.birth?.thinking ? [{ role:'assistant', content:item.birth.thinking }] : []))
+      ? dialogToChatMessages(item.birth.dialog)
+      : (item.birth?.thinking ? [{ role:'assistant', content:item.birth.thinking } as Message] : []))
     : [];
 
   return (<>
@@ -871,7 +871,7 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
         {item.kind==='rejected' ? (<>
           {item.raw && <div className="sec"><div className="lbl">屏幕原文</div><div className="rawbox">{item.raw}</div></div>}
           {item.birth?.scene && <div className="sec"><div className="lbl">场景判</div><div className="val mut">{item.birth.scene.name||'—'} · {item.birth.scene.why||''}</div></div>}
-          {rejectedThinkingFlow.length ? <div className="sec"><div className="lbl">Agent 思考过程</div><DialogFlow dialog={rejectedThinkingFlow} /></div> : null}
+          {rejectedThinkingMessages.length ? <div className="sec"><div className="lbl">Agent 思考过程</div><div className="reasoning-flow">{rejectedThinkingMessages.map((message:Message,i:number)=><ChatBubble key={i} message={message} />)}</div></div> : null}
           {item.id && <div className="sec"><button className="restore-btn-detail" onClick={async ()=>{
             if (window.orb?.restoreRejected) await window.orb.restoreRejected(item.id);
             if (window.orb?.getRecall) window.orb.getRecall().then(()=>window.dispatchEvent(new CustomEvent('recall-update')));
@@ -892,6 +892,43 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
       <div className="vscroll" id="dscroll"><div className="thumb" id="dthumb" /></div>
     </div>
   </>);
+}
+
+function dialogToChatMessages(dialog: any[]): Message[] {
+  const messages: Message[] = [];
+  const pendingToolIndexes: number[] = [];
+
+  for (const entry of dialog) {
+    if (entry.role==='user') {
+      messages.push({ role:'user', content:escHtml(String(entry.content||'').slice(0,1500)) });
+      continue;
+    }
+    if (entry.role==='assistant') {
+      const content = String(entry.content||'').trim();
+      if (content) messages.push({ role:'assistant', content });
+      for (const call of entry.tool_calls||[]) {
+        messages.push({
+          role:'tool',
+          content:call.name||'工具调用',
+          status:'done',
+          args:call.args||{},
+        });
+        pendingToolIndexes.push(messages.length-1);
+      }
+      continue;
+    }
+    if (entry.role==='tool') {
+      const result = String(entry.content||'').slice(0,4000);
+      const pendingIndex = pendingToolIndexes.shift();
+      if (pendingIndex !== undefined) {
+        messages[pendingIndex] = { ...messages[pendingIndex], result };
+      } else {
+        messages.push({ role:'tool', content:'工具调用', status:'done', result });
+      }
+    }
+  }
+
+  return messages;
 }
 
 function DialogFlow({ dialog }: { dialog: any[] }) {
