@@ -482,15 +482,15 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
           case 'TEXT_MESSAGE_START': pending = ''; break;
           case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; break;
           case 'TEXT_MESSAGE_END': setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content:pending }]); pending = ''; break;
-          case 'TOOL_CALL_START': setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?'}]); break;
+          case 'TOOL_CALL_START': setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?',status:'running'}]); break;
           case 'TOOL_CALL_END': setMessages(prev=>{
             let idx = -1;
             for (let i = prev.length - 1; i >= 0; i--) {
-              if (prev[i].role === 'tool' && prev[i].content === ev.toolName) { idx = i; break; }
+              if (prev[i].role === 'tool' && prev[i].status === 'running' && prev[i].content === ev.toolName) { idx = i; break; }
             }
             if (idx < 0) return prev;
             const next = [...prev];
-            next[idx] = { role:'tool', content:'✓ '+ev.toolName };
+            next[idx] = { role:'tool', content:ev.toolName||'?', status:'done' };
             return next;
           }); break;
           case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
@@ -535,7 +535,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
             onInput={onInput}
             onKeyDown={e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); send(); } }}
             suppressContentEditableWarning />
-          <button className="chat-send" onClick={send} disabled={busy||!canSend}>
+          <button className="chat-send" onClick={send} disabled={busy||!canSend} aria-label="发送消息">
             <span className="send-plane"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></span>
             <span className="send-logo"><svg viewBox="0 0 52 52"><path className="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg></span>
           </button>
@@ -606,15 +606,16 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
 
 function ChatBubble({ message }: { message: Message }) {
   if (message.role==='tool') {
-    const done = message.content.startsWith('✓ ');
-    const label = done ? message.content.slice(2) : message.content;
+    // 旧会话没有 status 字段，但其中的工具记录均来自 TOOL_CALL_END，应视为已完成。
+    const running = message.status === 'running';
+    const label = message.content.startsWith('✓ ') ? message.content.slice(2) : message.content;
     return (
-      <div className={`tool-line${done ? '' : ' running'}`}>
+      <div className={`tool-line${running ? ' running' : ' done'}`}>
         <span className="th">
           <span className="ic" aria-hidden="true">
-            <svg viewBox="14 15 25 23">
-              <path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" />
-            </svg>
+            {running
+              ? <span className="tool-pending-dot" />
+              : <svg viewBox="14 15 25 23"><path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" /></svg>}
           </span>
           <span className="sum">{label}</span>
         </span>

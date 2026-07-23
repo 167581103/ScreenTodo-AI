@@ -324,10 +324,10 @@
   /* 工具行:极简一行"它做了什么"——无卡片、无边框,一行灰字。点 chev 才展开细节。 */
   .tool-line{align-self:flex-start;max-width:92%;font-size:12px;color:var(--ink-3);margin:1px 0}
   .tool-line .th{display:inline-flex;align-items:center;gap:6px;padding:2px 2px;cursor:pointer;user-select:none;max-width:100%}
-  .tool-line .ic{flex:none;font-size:11px;line-height:1;color:var(--ink-3)}
-  .tool-line .ic svg{display:block;width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-  .tool-line.running .ic{animation:tl-pulse 1s ease-in-out infinite}
-  @keyframes tl-pulse{0%,100%{opacity:.3}50%{opacity:1}}
+  .tool-line .ic{display:grid;flex:none;width:11px;height:11px;place-items:center;line-height:1;color:var(--ink-3)}
+  .tool-line .ic svg{display:block;width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  .tool-pending-dot{width:5px;height:5px;border-radius:50%;background:currentColor;animation:tl-pulse 1s ease-in-out infinite}
+  @keyframes tl-pulse{0%,100%{opacity:.3;transform:scale(.82)}50%{opacity:.85;transform:scale(1)}}
   .tool-line .verb{color:var(--ink-2);white-space:nowrap}
   .tool-line .sum{color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .tool-line .chev{flex:none;color:var(--ink-3);font-size:8px;opacity:.5;transition:transform .16s var(--e-out),opacity .14s}
@@ -389,8 +389,8 @@
     transition:transform .12s var(--e-out),box-shadow .18s var(--e-out),opacity .14s;
     box-shadow:0 2px 6px color-mix(in srgb,var(--ink) 24%,transparent);
   }
-  .chat-send:hover{transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb,var(--ink) 32%,transparent)}
-  .chat-send:active{transform:scale(.94)}
+  .chat-send:not(:disabled):hover{transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb,var(--ink) 32%,transparent)}
+  .chat-send:not(:disabled):active{transform:scale(.94)}
   .chat-send:disabled{opacity:.4;cursor:default;box-shadow:none;transform:none}
   .chat-send .send-plane,.chat-send .send-logo{
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
@@ -400,8 +400,9 @@
   .chat-send .send-logo{transform:translate(-120%,120%);opacity:0}
   .chat-send .send-logo svg{width:22px;height:22px}
   .chat-send .send-logo .arc{stroke:currentColor;fill:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
-  .chat-send:hover .send-plane{transform:translate(130%,-130%);opacity:0}
-  .chat-send:hover .send-logo{transform:translate(0,0);opacity:1}
+  .chat-send:disabled .send-plane,.chat-send:disabled .send-logo{transition:none}
+  .chat-send:not(:disabled):hover .send-plane{transform:translate(130%,-130%);opacity:0}
+  .chat-send:not(:disabled):hover .send-logo{transform:translate(0,0);opacity:1}
 
   /* ── 设置页面(整页视图) ── */
   .set-page{display:flex;flex-direction:column;height:100%;background:var(--bg);min-width:0}
