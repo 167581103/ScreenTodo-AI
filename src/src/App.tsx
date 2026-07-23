@@ -285,6 +285,7 @@ type SubState = { loading: boolean; sections: { label: string; items: SubItem[] 
 function ChatViewImpl({ sid }: { sid: string|null }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
+  const [thinkingText, setThinkingText] = useState<string | null>(null);
   const [canSend, setCanSend] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [subTab, setSubTab] = useState<string|null>(null);
@@ -481,31 +482,91 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
       sendText += '\n\n（引用提示：'+parts.join('；')+'）';
     }
     setBusy(true);
+    setThinkingText('思考中…');
     setMessages(prev => [...prev, { role:'user', content: msgHTML }]);
     ta.innerHTML = ''; autoGrow(ta); chatDrafts.set(sid, ''); setCanSend(false); closeAdd();
-    let pending = '';
+    let activeMessageId = '';
+    let receivedReply = false;
     W.chatStream(sendText, {
       onEvent(ev: AguiEvent) {
         switch (ev.type) {
-          case 'TEXT_MESSAGE_START': pending = ''; break;
-          case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; break;
-          case 'TEXT_MESSAGE_END': setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content:pending }]); pending = ''; break;
-          case 'TOOL_CALL_START': setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?',status:'running'}]); break;
+          case 'TEXT_MESSAGE_START': {
+            setThinkingText(null);
+            const messageId = ev.messageId || ('assistant-' + Date.now());
+            activeMessageId = messageId;
+            setMessages(prev => [...prev, {
+              id: messageId,
+              role: 'assistant',
+              content: '',
+              streaming: true,
+            }]);
+            break;
+          }
+          case 'TEXT_MESSAGE_CONTENT': {
+            const delta = ev.delta || '';
+            if (!delta) break;
+            const messageId = activeMessageId;
+            setMessages(prev => prev.map(m =>
+              m.id === messageId ? { ...m, content: m.content + delta } : m
+            ));
+            break;
+          }
+          case 'TEXT_MESSAGE_END': {
+            receivedReply = true;
+            setThinkingText(null);
+            const messageId = activeMessageId;
+            setMessages(prev => prev.map(m =>
+              m.id === messageId
+                ? { ...m, content: m.content || '（没有返回内容）', streaming: false }
+                : m
+            ));
+            activeMessageId = '';
+            break;
+          }
+          case 'TOOL_CALL_START':
+            setThinkingText(null);
+            setMessages(prev=>[...prev,{
+              role:'tool',
+              content:ev.toolName||'?',
+              status:'running',
+              toolCallId:ev.toolCallId,
+              args:ev.args||{},
+            }]);
+            break;
           case 'TOOL_CALL_END': setMessages(prev=>{
             let idx = -1;
             for (let i = prev.length - 1; i >= 0; i--) {
-              if (prev[i].role === 'tool' && prev[i].status === 'running' && prev[i].content === ev.toolName) { idx = i; break; }
+              if (prev[i].role === 'tool' && prev[i].status === 'running' &&
+                (prev[i].toolCallId === ev.toolCallId || (!ev.toolCallId && prev[i].content === ev.toolName))) { idx = i; break; }
             }
             if (idx < 0) return prev;
             const next = [...prev];
-            next[idx] = { role:'tool', content:ev.toolName||'?', status:'done' };
+            next[idx] = {
+              ...next[idx],
+              content:ev.toolName||next[idx].content,
+              status:'done',
+              args:ev.args||next[idx].args||{},
+              result:String(ev.result||''),
+            };
             return next;
-          }); break;
+          });
+            setThinkingText('整理结果…');
+            break;
           case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
         }
       },
-      onDone(){ setBusy(false); },
-      onError(err){ setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+err}]); setBusy(false); },
+      onDone(result){
+        if (!receivedReply && result?.reply) {
+          setMessages(prev=>[...prev,{role:'assistant',content:result.reply!}]);
+        }
+        setThinkingText(null);
+        setBusy(false);
+      },
+      onError(err){
+        setThinkingText(null);
+        setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+err}]);
+        setBusy(false);
+      },
     });
   }, [busy, sid, closeAdd]);
 
@@ -528,7 +589,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
         <div className="chat-glow" id="chat-glow" />
         {messages.length===0&&!busy&&<div className="chat-empty">开始一段对话吧</div>}
         {messages.map((m,i)=><ChatBubble key={i} message={m} />)}
-        {busy&&!messages.some(m=>m.role==='assistant'&&m.content==='\u200B')&&<div className="thinking">思考中…</div>}
+        {thinkingText && <div className="thinking">{thinkingText}</div>}
       </div>
       <div className="vscroll" id="cscroll"><div className="thumb" id="cthumb" /></div>
       <div className="chat-input">
@@ -613,25 +674,45 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
 }
 
 function ChatBubble({ message }: { message: Message }) {
-  if (message.role==='tool') {
-    // 旧会话没有 status 字段，但其中的工具记录均来自 TOOL_CALL_END，应视为已完成。
-    const running = message.status === 'running';
-    const label = message.content.startsWith('✓ ') ? message.content.slice(2) : message.content;
-    return (
-      <div className={`tool-line${running ? ' running' : ' done'}`}>
-        <span className="th">
-          <span className="ic" aria-hidden="true">
-            {running
-              ? <span className="tool-pending-dot" />
-              : <svg viewBox="14 15 25 23"><path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" /></svg>}
-          </span>
-          <span className="sum">{label}</span>
-        </span>
-      </div>
-    );
-  }
+  if (message.role==='tool') return <ToolBubble message={message} />;
   if (message.role==='user') return <div className="msg u" dangerouslySetInnerHTML={{__html: sanitizeUserMessageHtml(message.content)}} />;
-  return <div className="answer" dangerouslySetInnerHTML={{__html:md(message.content)}} />;
+  return <div className={`answer${message.streaming?' streaming':''}`} dangerouslySetInnerHTML={{__html:md(message.content)}} />;
+}
+
+function ToolBubble({ message }: { message: Message }) {
+  const [open, setOpen] = useState(false);
+  // 旧会话没有 status 字段，但其中的工具记录均来自 TOOL_CALL_END，应视为已完成。
+  const running = message.status === 'running';
+  const name = message.content.startsWith('✓ ') ? message.content.slice(2) : message.content;
+  const args = message.args || {};
+  const argText = toolArgSummary(name, args);
+  const result = String(message.result || '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+  const resultBrief = toolResultBrief(result);
+  const summary = [argText, resultBrief].filter(Boolean).join(' → ');
+  const detail = result ? humanizeToolResult(result) : '';
+  const expandable = !!detail;
+
+  return (
+    <div className={`tool-line${running ? ' running' : ' done'}${open ? ' open' : ''}`}>
+      <button className="th" type="button" disabled={!expandable}
+        aria-expanded={expandable ? open : undefined}
+        onClick={()=>{ if(expandable) setOpen(v=>!v); }}>
+        <span className="ic" aria-hidden="true">
+          {running
+            ? <span className="tool-pending-dot" />
+            : <svg viewBox="14 15 25 23"><path d="M15 27C21 35 24 37 27 37 31 37 34 27 38 16" /></svg>}
+        </span>
+        <span className="verb">{toolVerb(name)}</span>
+        {summary && <span className="sum">{summary}</span>}
+        {expandable && <span className="chev" aria-hidden="true">▸</span>}
+      </button>
+      {expandable && (
+        <div className="detail">
+          <div className="kv">{detail}</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── 工作记忆(feed)视图 ──
@@ -968,6 +1049,48 @@ function fmtTime(t: any) { if(!t)return'';const d=new Date(t);return isNaN(d.get
 function toolVerb(name: string) {
   const map: Record<string,string> = { get_more_context:'查屏幕上下文', search_captured:'查已捕获', save_todo:'记待办', list_todos:'查待办', get_screen_text:'读屏幕' };
   return map[name] || name;
+}
+function toolArgSummary(name: string, args: Record<string, unknown>) {
+  if (!args || typeof args !== 'object') return '';
+  if (name==='list_todos') {
+    const scope = String(args.scope || '');
+    return ({today:'今天',pending:'待处理',all:'全部'} as Record<string,string>)[scope] || scope;
+  }
+  if (name==='search_captured') return args.query ? `“${String(args.query)}”` : '';
+  if (name==='get_more_context') return [args.app,args.hint].filter(Boolean).map(String).join(' · ');
+  if (name==='save_todo') return String(args.title || '');
+  const first = Object.values(args).find(v=>v!==undefined&&v!==null&&v!=='');
+  return first===undefined ? '' : String(first);
+}
+function toolResultBrief(result: string) {
+  if (!result) return '';
+  try {
+    const value = JSON.parse(result);
+    if (value && typeof value === 'object' && !Array.isArray(value) && 'total' in value) return `共 ${value.total} 条`;
+    if (Array.isArray(value)) return `${value.length} 条结果`;
+  } catch {}
+  return '';
+}
+function humanizeToolResult(result: string) {
+  if (!result) return '（无内容）';
+  try {
+    const value = JSON.parse(result);
+    if (Array.isArray(value)) {
+      return value.map((item:any,index:number)=>`${index+1}. ${item?.title||item?.name||JSON.stringify(item)}`).join('\n') || '（空）';
+    }
+    if (value && typeof value === 'object') {
+      const obj = value as Record<string, any>;
+      const items = obj.items || obj.results || obj.list;
+      if (Array.isArray(items)) {
+        const head = 'total' in obj ? `共 ${obj.total} 条${obj.scope?`（${obj.scope}）`:''}\n` : '';
+        return head + items.map((item:any,index:number)=>
+          `${index+1}. ${item?.title||item?.name||''}${item?.status?` · ${item.status}`:''}${item?.time?` ${item.time}`:''}`
+        ).join('\n');
+      }
+      return Object.entries(obj).map(([key,val])=>`${key}：${typeof val==='object'?JSON.stringify(val):String(val)}`).join('\n');
+    }
+  } catch {}
+  return result.length>800 ? result.slice(0,800)+' …' : result;
 }
 
 // ── 自定义 overlay 滚动条(与旧 bindScroll 等价) ──

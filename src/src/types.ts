@@ -11,9 +11,14 @@ export interface SessionListResponse {
 }
 
 export interface Message {
+  id?: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
   status?: 'running' | 'done';
+  streaming?: boolean;
+  toolCallId?: string;
+  args?: Record<string, unknown>;
+  result?: string;
 }
 
 export interface Session extends SessionMeta {
@@ -23,8 +28,11 @@ export interface Session extends SessionMeta {
 export interface AguiEvent {
   type: 'RUN_STARTED' | 'TEXT_MESSAGE_START' | 'TEXT_MESSAGE_CONTENT' | 'TEXT_MESSAGE_END' | 'TOOL_CALL_START' | 'TOOL_CALL_END' | 'RUN_FINISHED' | 'RUN_ERROR';
   delta?: string;
+  messageId?: string;
+  toolCallId?: string;
   toolName?: string;
-  result?: { reply: string };
+  args?: Record<string, unknown>;
+  result?: unknown;
   error?: string;
 }
 

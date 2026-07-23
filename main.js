@@ -438,9 +438,31 @@ ipcMain.handle('chat:reorder-sessions', (e, ids) => {
 ipcMain.on('chat:stream', async (e, text) => {
   const sender = e.sender;
   const toolsThisRun = [];
+  const toolIndexes = new Map();
   const emit = (type, payload = {}) => {
-    // 截获工具调用,持久化到会话展示历史(仅记工具名)
-    if (type === 'TOOL_CALL_END' && payload.toolName) toolsThisRun.push(String(payload.toolName));
+    // 截获工具调用，保留名称、参数和结果，供历史会话恢复完整描述。
+    if (type === 'TOOL_CALL_START' && payload.toolName) {
+      const rec = {
+        role: 'tool',
+        content: String(payload.toolName),
+        status: 'running',
+        toolCallId: payload.toolCallId || '',
+        args: payload.args || {},
+        result: '',
+      };
+      toolIndexes.set(rec.toolCallId, toolsThisRun.length);
+      toolsThisRun.push(rec);
+    } else if (type === 'TOOL_CALL_END' && payload.toolName) {
+      const idx = toolIndexes.get(payload.toolCallId || '');
+      if (idx !== undefined) {
+        toolsThisRun[idx] = {
+          ...toolsThisRun[idx],
+          status: 'done',
+          args: payload.args || toolsThisRun[idx].args || {},
+          result: String(payload.result || '').slice(0, 4000),
+        };
+      }
+    }
     try { sender.send('chat:event', { type, ...payload }); } catch (_) {}
   };
   const guard = new Promise((_, rej) => setTimeout(() => rej(new Error('响应超时')), 50000));
@@ -454,7 +476,7 @@ ipcMain.on('chat:stream', async (e, text) => {
       : (r && r._reply) ? r._reply
       : (typeof r === 'string' ? r : (r && r.text) || '(已处理)');
     ses.messages.push({ role: 'user', content: String(text || '') });
-    for (const t of toolsThisRun) ses.messages.push({ role: 'tool', content: t, status: 'done' });
+    for (const t of toolsThisRun) ses.messages.push({ ...t, status: 'done' });
     ses.messages.push({ role: 'assistant', content: reply });
     if (ses.messages.length > 60) ses.messages = ses.messages.slice(-60);
     saveSessions();
