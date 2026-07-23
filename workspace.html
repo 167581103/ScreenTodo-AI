@@ -141,6 +141,13 @@
   .pill::before{content:"";width:6px;height:6px;border-radius:50%}
   .pill.acc{color:var(--ok)} .pill.acc::before{background:var(--ok)}
   .pill.ign{color:var(--off)} .pill.ign::before{background:var(--off)}
+  /* 已拒行 + 恢复按钮 */
+  .row.rej{position:relative}
+  .row.rej .restore-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2);font-size:11px;padding:3px 11px;border-radius:8px;cursor:pointer;opacity:0;transition:opacity .14s,background .14s,color .14s}
+  .row.rej:hover .restore-btn{opacity:1}
+  .row.rej .restore-btn:hover{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .restore-btn-detail{border:1px solid var(--line-2);background:var(--panel);color:var(--ink-2);font-size:12.5px;padding:7px 18px;border-radius:9px;cursor:pointer;transition:background .14s,color .14s;font-family:inherit}
+  .restore-btn-detail:hover{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 
   .empty{display:flex;flex-direction:column;align-items:center;gap:10px;padding:80px 24px;text-align:center;color:var(--ink-3)}
   .empty svg{width:26px;height:26px;stroke:var(--ink-3);stroke-width:1.4;fill:none;opacity:.7}
@@ -185,6 +192,15 @@
     font-family:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,monospace;
     white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;
   }
+  /* 判读对话回放:迷你 chat 形态。user(屏幕输入)右靠、assistant 左靠、tool 调用灰行。 */
+  .dlg-flow{display:flex;flex-direction:column;gap:7px;padding:2px 2px;max-height:420px;overflow-y:auto}
+  .dlg-flow .dlg.msg{max-width:88%;padding:7px 11px;border-radius:11px;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+  .dlg-flow .dlg.msg.u{align-self:flex-end;background:var(--ink);color:var(--bg);border-bottom-right-radius:4px}
+  .dlg-flow .dlg.msg.a{align-self:flex-start;background:color-mix(in srgb,var(--ink) 6%,transparent);color:var(--ink);border-bottom-left-radius:4px}
+  .dlg-flow .dlg.tool-r{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-3);max-width:88%}
+  .dlg-flow .dlg-ic{flex:none;font-size:11px}
+  .dlg-flow .dlg-tx{min-width:0}
+  .dlg-flow .b-arg{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--ink-3);background:color-mix(in srgb,var(--ink) 5%,transparent);padding:1px 5px;border-radius:4px;margin-left:4px}
   /* 全局文本选择光标(功能性,到处一致):可选文本区统一 IBeam。氛围性的跟随小圈仅对话区。 */
   .row .tt,.db,.rawbox,.answer,.msg,.detail .kv,.stline{cursor:text}
   .stline{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:500}
@@ -407,6 +423,16 @@
   .seg button.on{background:var(--raised);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.06)}
   .taglist{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
   .taglist:empty{margin-bottom:0}
+  /* 进程选择:输入框 + 弹层(带滚动) */
+  .proc-wrap{position:relative}
+  .proc-in{width:100%}
+  .proc-pop{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;background:var(--panel);border:1px solid var(--line-2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);max-height:240px;overflow-y:auto;display:none;padding:4px;scrollbar-width:thin}
+  .proc-pop.open{display:block}
+  .proc-pop .item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;font-size:12.5px;color:var(--ink);cursor:pointer;font-family:inherit;border:none;background:none;width:100%;text-align:left}
+  .proc-pop .item:hover,.proc-pop .item.sel{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+  .proc-pop .item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .proc-pop .empty{padding:14px 12px;font-size:12px;color:var(--ink-3);text-align:center}
+  .proc-pop .empty.err{color:var(--off)}
   .tag{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink);background:var(--panel);border:1px solid var(--line);padding:4px 8px 4px 11px;border-radius:var(--r-s)}
   .tag b{font-weight:600}
   .tag .tname{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;color:var(--ink-3);background:color-mix(in srgb,var(--ink) 7%,transparent);padding:1px 5px;border-radius:5px;font-weight:400}
@@ -510,6 +536,7 @@
     <div class="tab pending" data-f="pending"><span class="lbl">待处理</span><span class="cnt" id="c-pending">0</span></div>
     <div class="tab accepted" data-f="accepted"><span class="lbl">已采纳</span><span class="cnt" id="c-accepted">0</span></div>
     <div class="tab ignored" data-f="ignored"><span class="lbl">已忽略</span><span class="cnt" id="c-ignored">0</span></div>
+    <div class="tab" data-f="rejected"><span class="lbl">已拒</span><span class="cnt" id="c-rejected">0</span></div>
     <div class="top-divider"></div>
     <div class="tab view-tab" id="tab-settings" data-view="settings">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -600,16 +627,21 @@
               <div class="set-lbl">进程黑名单</div>
               <div class="set-desc">这些应用里的内容不会被捕获（如终端、密码管理器）。回车添加。</div>
               <div class="taglist" id="deny-list"></div>
-              <input class="tagin" id="deny-in" placeholder="输入应用名后回车…" list="procs" />
+              <div class="proc-wrap">
+                <input class="tagin proc-in" id="deny-in" placeholder="输入应用名后回车…" autocomplete="off" />
+                <div class="proc-pop" id="deny-pop"></div>
+              </div>
             </div>
             <div class="set-group">
               <div class="set-lbl">进程白名单</div>
               <div class="set-desc">留空 = 监控全部应用；填了则<b>只</b>监控名单内的应用。</div>
               <div class="taglist" id="allow-list"></div>
-              <input class="tagin" id="allow-in" placeholder="输入或从系统进程选择…" list="procs" />
+              <div class="proc-wrap">
+                <input class="tagin proc-in" id="allow-in" placeholder="输入或从系统进程选择…" autocomplete="off" />
+                <div class="proc-pop" id="allow-pop"></div>
+              </div>
             </div>
             <div class="set-note" id="set-note"></div>
-            <datalist id="procs"></datalist>
           </div>
         </div>
       </div>
@@ -629,13 +661,15 @@
     all:['工作记忆','从屏幕、对话与文档中安静捕获的上下文。'],
     pending:['待处理','尚未采纳或忽略的捕获。'],
     accepted:['已采纳','已加入 vault 的待办。'],
-    ignored:['已忽略','你判定与自己无关的捕获。']
+    ignored:['已忽略','你判定与自己无关的捕获。'],
+    rejected:['已拒（回收站）','Agent 判否的记录，误拒的可恢复。']
   };
   const EMPTY={
     all:['还没有捕获','屏幕上出现值得记的内容时，会安静地沉淀在这里。'],
     pending:['没有待处理','新捕获会先落在这里，等你采纳或忽略。'],
     accepted:['还没有采纳','采纳的建议会写入 vault，并在这里留痕。'],
-    ignored:['没有忽略','你判定无关的捕获会归档在这里。']
+    ignored:['没有忽略','你判定无关的捕获会归档在这里。'],
+    rejected:['没有被拒的记录','Agent 判否的会落在这里，可恢复。']
   };
   const ICON_EMPTY='<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10" stroke-linecap="round"/></svg>';
 
@@ -651,6 +685,35 @@
     for(const k of ['all','pending','accepted','ignored']) document.getElementById('c-'+k).textContent=cnt[k];
     document.getElementById('head-title').textContent=HEAD[filter][0];
     document.getElementById('head-sub').textContent=HEAD[filter][1];
+
+    // 已拒(回收站):独立数据源,异步取。判否的可恢复。
+    if(filter==='rejected'){
+      const list=document.getElementById('list');
+      list.innerHTML='<div class="empty"><div class="t">加载中…</div></div>';
+      (async()=>{
+        const rej = (window.orb&&window.orb.getRejected) ? await window.orb.getRejected() : [];
+        window.__REJ=rej; // 供行点击时查找
+        document.getElementById('c-rejected').textContent=rej.length;
+        if(!rej.length){ list.innerHTML=`<div class="empty">${ICON_EMPTY}<div class="t">没有被拒的记录</div><div class="s">Agent 判否的会落在这里，可恢复。</div></div>`; return; }
+        list.innerHTML=rej.map((it,i)=>`<div class="row rej" data-rid="${esc(it.id)}" tabindex="0">`+
+          `<div class="tt">${esc(it.title)}</div>`+
+          `<div class="meta">${fmtTime(it.time)}${it.scene?' · '+esc(it.scene.name||''):''}</div>`+
+          `<div class="ctx"><span class="src">被拒</span>${esc((it.screen||'').slice(0,80))}</div>`+
+          `<button class="restore-btn" data-rid="${esc(it.id)}">恢复</button></div>`).join('');
+        list.querySelectorAll('.restore-btn').forEach(b=>{
+          b.addEventListener('click',async(e)=>{ e.stopPropagation(); const id=b.dataset.rid;
+            if(window.orb&&window.orb.restoreRejected){ await window.orb.restoreRejected(id); }
+            window.renderRecall();
+          });
+        });
+        list.querySelectorAll('.row.rej').forEach(r=>{ r.addEventListener('click',()=>{
+          const it=(window.__REJ||[]).find(x=>x.id===r.dataset.rid);
+          if(it) openDetail({title:it.title, kind:'rejected', birth:{dialog:it.dialog||[],scene:it.scene,thinking:it.thinking||''}, raw:it.screen||'', time:it.time});
+        }); });
+        if(window.__syncScroll) window.__syncScroll();
+      })();
+      return;
+    }
 
     let items=data;
     if(filter==='pending') items=data.filter(d=>!d.status);
@@ -690,20 +753,69 @@
     if(!it)return;
     selId=it.id||null;
     document.getElementById('d-title').textContent=it.title||'—';
-    const stCls=it.status==='accepted'?'acc':it.status==='ignored'?'ign':'pend';
-    const stTxt=it.status==='accepted'?'已采纳':it.status==='ignored'?'已忽略':'待处理';
+    const stCls=it.status==='accepted'?'acc':it.status==='ignored'?'ign':it.kind==='rejected'?'ign':'pend';
+    const stTxt=it.status==='accepted'?'已采纳':it.status==='ignored'?'已忽略':it.kind==='rejected'?'被拒':'待处理';
     const apps=(it.apps&&it.apps.length)?it.apps:(it.tag?[it.tag]:[]);
     const parts=[];
     parts.push(`<div class="sec"><div class="lbl">状态</div><div class="val"><span class="stline ${stCls}">${stTxt}</span></div></div>`);
-    if(it.kind==='task') parts.push(`<div class="sec"><div class="lbl">来源</div><div class="val mut">vault · 日常/${esc(it.file||'')}</div></div>`);
+    if(it.kind==='rejected'){
+      // 被拒记录:展示屏幕原文 + 判读对话(看 Agent 为什么判否)
+      if(it.raw) parts.push(`<div class="sec"><div class="lbl">屏幕原文</div><div class="rawbox">${esc(it.raw)}</div></div>`);
+      if(it.birth && it.birth.scene) parts.push(`<div class="sec"><div class="lbl">场景判</div><div class="val mut">${esc(it.birth.scene.name||'—')} · ${it.birth.scene.why?esc(it.birth.scene.why):''}</div></div>`);
+      if(it.birth && it.birth.thinking) parts.push(`<div class="sec"><div class="lbl">Agent 思考</div><div class="answer">${md(it.birth.thinking)}</div></div>`);
+      if(it.birth && it.birth.dialog && it.birth.dialog.length){
+        const d=it.birth.dialog;
+        const bubbles=d.map(m=>{
+          if(m.role==='user') return '<div class="dlg msg u">'+esc((m.content||'').slice(0,500))+'</div>';
+          if(m.role==='tool') return '<div class="dlg tool-r"><span class="dlg-ic">✓</span><span class="dlg-tx">'+esc((m.content||'').slice(0,300))+'</span></div>';
+          if(m.role==='assistant'){
+            const txt=(m.content||'').trim();
+            const tc=(m.tool_calls||[]).map(c=>'<div class="dlg tool-r"><span class="dlg-ic">○</span><span class="dlg-tx">'+esc(toolVerb(c.name))+(c.args&&Object.keys(c.args).length?' <span class="b-arg">'+esc(JSON.stringify(c.args))+'</span>':'')+'</span></div>').join('');
+            return (txt?('<div class="dlg msg a">'+esc(txt)+'</div>'):'')+tc;
+          }
+          return '';
+        }).join('');
+        parts.push(`<div class="sec"><div class="lbl">判读对话</div><div class="dlg-flow">${bubbles}</div></div>`);
+      }
+      // 详情里也放恢复按钮
+      if(it.id) parts.push(`<div class="sec"><button class="restore-btn-detail" data-rid="${esc(it.id)}">恢复此条</button></div>`);
+    } else if(it.kind==='task') parts.push(`<div class="sec"><div class="lbl">来源</div><div class="val mut">vault · 日常/${esc(it.file||'')}</div></div>`);
     else{
       if(apps.length) parts.push(`<div class="sec"><div class="lbl">来源</div><div class="chips">${apps.map(a=>'<span class="chip">'+esc(a)+'</span>').join('')}</div></div>`);
       if(it.reason) parts.push(`<div class="sec"><div class="lbl">为什么捕获</div><div class="val mut">${esc(it.reason)}</div></div>`);
       if(it.context) parts.push(`<div class="sec"><div class="lbl">触发片段</div><div class="val">${esc(it.context)}</div></div>`);
       if(it.raw) parts.push(`<div class="sec"><div class="lbl">触发时的屏幕上下文</div><div class="rawbox">${esc(it.raw)}</div></div>`);
+      // 出生证 = 判读对话回放(屏幕↔Agent 的完整对话,和 chat 同形态)。这才是"思考过程"。
+      if(it.birth && it.birth.thinking) parts.push(`<div class="sec"><div class="lbl">Agent 思考</div><div class="answer">${md(it.birth.thinking)}</div></div>`);
+      if(it.birth && it.birth.dialog && it.birth.dialog.length){
+        const d=it.birth.dialog;
+        const bubbles=d.map(m=>{
+          if(m.role==='user') return '<div class="dlg msg u">'+esc((m.content||'').slice(0,500))+'</div>';
+          if(m.role==='tool') return '<div class="dlg tool-r"><span class="dlg-ic">✓</span><span class="dlg-tx">'+esc((m.content||'').slice(0,300))+'</span></div>';
+          if(m.role==='assistant'){
+            const txt=(m.content||'').trim();
+            const tc=(m.tool_calls||[]).map(c=>'<div class="dlg tool-r"><span class="dlg-ic">○</span><span class="dlg-tx">'+esc(toolVerb(c.name))+(c.args&&Object.keys(c.args).length?' <span class="b-arg">'+esc(JSON.stringify(c.args))+'</span>':'')+'</span></div>').join('');
+            return (txt?('<div class="dlg msg a">'+esc(txt)+'</div>'):'')+tc;
+          }
+          return '';
+        }).join('');
+        parts.push(`<div class="sec"><div class="lbl">判读对话</div><div class="dlg-flow">${bubbles}</div></div>`);
+      } else if(it.birth){
+        // 旧 birth(只有概要没 dialog):折叠显示场景判
+        const b=it.birth;
+        if(b.scene) parts.push(`<div class="sec"><div class="lbl">场景判</div><div class="val mut">${esc(b.scene.name||'—')} · ${b.scene.why?esc(b.scene.why):''}</div></div>`);
+      }
     }
     parts.push(`<div class="sec"><div class="lbl">时间</div><div class="val mut">${fmtTime(it.time)}</div></div>`);
     document.getElementById('d-body').innerHTML=parts.join('');
+    // 详情里的恢复按钮
+    const rb=document.querySelector('.restore-btn-detail');
+    if(rb) rb.addEventListener('click',async()=>{
+      if(window.orb&&window.orb.restoreRejected){ await window.orb.restoreRejected(rb.dataset.rid); }
+      document.getElementById('drawer').classList.remove('open');
+      document.getElementById('scrim').classList.remove('on');
+      window.renderRecall();
+    });
     document.getElementById('drawer').classList.add('open');
     document.getElementById('scrim').classList.add('on');
     document.getElementById('d-body').scrollTop=0;
@@ -783,25 +895,93 @@
     const arr=which==='deny'?filterState.denyApps:filterState.allowApps;
     if(!arr.includes(val)){arr.push(val);saveFilter();}
   }
-  document.getElementById('deny-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('deny',e.target.value);e.target.value='';}});
-  document.getElementById('allow-in').addEventListener('keydown',e=>{if(e.key==='Enter'){addTag('allow',e.target.value);e.target.value='';}});
+  // (deny-in/allow-in 的 Enter 提交由 setupProcInput 统一处理)
 
-  // ── 工具可见性面板已移除(迁移到对话内「+」弹层,见 chatPanel) ──
+  // ── 系统进程选择器(自定义下拉,带滚动;聚焦/输入时拉取+过滤) ──
+  let procsCache = null;
+  let procsIdx = -1;   // 键盘上下高亮
+  let procsActiveInput = null;
 
-  // ── 系统进程选择器(datalist):聚焦时获取运行进程,供黑/白名单输入补全 ──
-  let procsCache=null;
-  async function populateProcs(){
-    if(procsCache) return procsCache;
-    if(window.orb&&window.orb.getRunningProcesses){
-      try{ procsCache=await window.orb.getRunningProcesses(); }catch(_){ procsCache=[]; }
-    }else{ procsCache=[]; }
-    const dl=document.getElementById('procs'); if(!dl) return procsCache;
-    dl.innerHTML='';
-    for(const p of procsCache) dl.insertAdjacentHTML('beforeend','<option value="'+esc(p)+'">');
+  async function ensureProcs() {
+    if (procsCache) return procsCache;
+    if (window.orb && window.orb.getRunningProcesses) {
+      try { procsCache = await window.orb.getRunningProcesses(); } catch (_) { procsCache = []; }
+    } else { procsCache = []; }
     return procsCache;
   }
-  document.getElementById('deny-in').addEventListener('focus',populateProcs);
-  document.getElementById('allow-in').addEventListener('focus',populateProcs);
+  function renderProcPop(input, pop, q) {
+    const all = procsCache || [];
+    const ql = (q || '').trim().toLowerCase();
+    const items = ql ? all.filter(p => p.toLowerCase().includes(ql)) : all;
+    if (!all.length) {
+      pop.innerHTML = '<div class="empty err">获取进程列表失败</div>';
+      procsIdx = -1; return;
+    }
+    if (!items.length) {
+      pop.innerHTML = '<div class="empty">无匹配项,继续输入则当作自定义应用名添加</div>';
+      procsIdx = -1; return;
+    }
+    pop.innerHTML = items.map((p, i) => '<button class="item' + (i === procsIdx ? ' sel' : '') + '" data-p="' + esc(p) + '"><span class="nm">' + esc(p) + '</span></button>').join('');
+  }
+  function openProcPop(input, pop) {
+    pop.classList.add('open'); procsActiveInput = input;
+  }
+  function closeProcPop() {
+    document.querySelectorAll('.proc-pop.open').forEach(p => p.classList.remove('open'));
+    procsActiveInput = null; procsIdx = -1;
+  }
+  function setupProcInput(inputId, popId, which) {
+    const input = document.getElementById(inputId);
+    const pop = document.getElementById(popId);
+    if (!input || !pop) return;
+    input.addEventListener('focus', async () => {
+      await ensureProcs();
+      procsIdx = -1; renderProcPop(input, pop, input.value);
+      openProcPop(input, pop);
+    });
+    input.addEventListener('input', () => {
+      procsIdx = -1; renderProcPop(input, pop, input.value);
+      if (!pop.classList.contains('open')) openProcPop(input, pop);
+    });
+    // 点击项目:填入输入框并直接添加
+    pop.addEventListener('click', e => {
+      const btn = e.target.closest('.item');
+      if (!btn) return;
+      const name = btn.dataset.p;
+      input.value = name; closeProcPop();
+      addTag(which, name); input.value = '';
+    });
+    // 键盘:Enter 选当前(或直接添加当前文本),↑↓ 移动,Esc 关闭
+    input.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const items = pop.querySelectorAll('.item');
+        if (!items.length) return;
+        procsIdx = (procsIdx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        renderProcPop(input, pop, input.value);
+        items[procsIdx] && items[procsIdx].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const items = pop.querySelectorAll('.item');
+        if (procsIdx >= 0 && items[procsIdx]) {
+          const name = items[procsIdx].dataset.p;
+          input.value = name; closeProcPop(); addTag(which, name); input.value = '';
+        } else {
+          addTag(which, input.value); input.value = ''; closeProcPop();
+        }
+      } else if (e.key === 'Escape') {
+        closeProcPop();
+      }
+    });
+    // blur 关闭(延迟避免点击项目的事件被吞)
+    input.addEventListener('blur', () => setTimeout(closeProcPop, 120));
+  }
+  setupProcInput('deny-in', 'deny-pop', 'deny');
+  setupProcInput('allow-in', 'allow-pop', 'allow');
+  // 全局点击关闭(pop 内点击由 input 的 blur 延迟处理)
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.proc-wrap')) closeProcPop();
+  });
 
   // ── 自定义 overlay 滚动条:真正可动画(细→粗、淡→暗、拖拽)。工厂,复用于主列表 + 详情抽屉 ──
   function bindScroll(scrollEl, track, thumb, watchEl){

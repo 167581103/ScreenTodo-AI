@@ -11,6 +11,7 @@ const { segmentFrame } = require('./segment.js'); // 几何窗口分割:按坐�
 
 const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
+const REJECT_FILE = path.join(__dirname, 'rejected.jsonl'); // 被拒记录(进细判但 judge=false),可恢复。场景闸门拦下的不存。
 const PAUSE_FILE = path.join(__dirname, 'monitor.paused');
 const LOG_PATH = path.join(__dirname, 'daemon.log');
 
@@ -174,17 +175,15 @@ async function primeLastTs() {
   } catch (e) { log('[prime] 失败: ' + e.message); }
 }
 
-// 启动即把「当前屏幕最近内容」作为首轮上下文喂给模型(baseline seed)
-// 这样启动那一刻已停在屏幕上的隐藏需求也能被检测到,而不是只能等到屏幕变化。
-// 注意: 必须走 judgeWithCompletion(与 tick 同套), 否则单次 judge 会放过"可能需关注"这类无锚点弱信号误捕。
 // 启动即判一次当前屏幕(baseline seed):复用滑窗 fetchContext,避免启动时发超大 prompt。
 async function seedBaseline() {
   try {
     const inc = await fetchContext();
     if (inc.lines.length) {
       const screenText = inc.lines.join('\n');
-      lastWinHash = cheapHash(screenText); // 记录基线哈希,避免首个 tick 立刻重判同一屏
-      await judgeScreen(inc);
+      lastWinHash = cheapHash(screenText);
+      log('[baseline] 窗口 ' + inc.lines.length + ' 行 ' + screenText.length + '字 ' + inc.groups.length + ' 组');
+      await judgeGroups(inc, 'baseline');
     } else {
       log('[baseline] 无可见屏幕内容,跳过');
     }
@@ -200,10 +199,9 @@ async function seedBaseline() {
 let lastWinHash = null;
 function cheapHash(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; } return h; }
 
-// 场景判的精简输入:每行(区域)只取头部,场景层不需要全文 → 输入更小、更省。
-// 场景靠"结构 + 特征词"识别,不靠通读内容。总封顶 ~800 字。
-function sceneFeatures(inc) {
-  const heads = inc.lines.map((l) => l.slice(0, 90));
+// 场景判的精简输入:只取头部,场景靠结构+特征词识别,不靠通读内容。总封顶 ~800 字。
+function sceneText(lines) {
+  const heads = lines.map((l) => l.slice(0, 90));
   let s = heads.join('\n');
   if (s.length > 800) s = s.slice(0, 800);
   return s;
@@ -240,7 +238,9 @@ async function fetchContext() {
         const fp = normRegion(clean);
         if (fp.length < 8 || seenRegion.has(fp)) continue; // 跨帧重复区域(如侧边栏)只留一次
         seenRegion.add(fp);
-        lines.push(`[${f.app}·区域] ${clean.slice(-PERFRAME)}`);
+        // 每区域标注简短指纹(fq=前6字),让 judgeGroups 能按空间区域独立分组判读
+        const fq = fp.slice(0, 6);
+        lines.push(`[${f.app}·${fq}] ${clean.slice(-PERFRAME)}`);
       }
     } else {
       const clean = f.txt;
@@ -257,14 +257,44 @@ async function fetchContext() {
   let tot = lines.reduce((s, l) => s + l.length, 0);
   let truncated = false;
   while (lines.length > 1 && tot > MAXC) { tot -= lines.shift().length; truncated = true; }
-  return { lines, apps: [...apps], truncated };
+  // 按空间相邻的几何区域分组(跨帧去重后每条 line 对应一个独立区域)。
+  // 分组键 = 行前缀 [app] 或 [app·区域],同 app 同区域归一组,各自独立判读。
+  const groups = [];
+  let curGrp = null;
+  for (const l of lines) {
+    const pf = l.match(/^(\[[^\]]+\])\s/);
+    const gk = pf ? pf[1] : '__';
+    if (!curGrp || curGrp.key !== gk) {
+      if (curGrp && curGrp.lines.length) groups.push(curGrp);
+      curGrp = { key: gk, lines: [l] };
+    } else {
+      curGrp.lines.push(l);
+    }
+  }
+  if (curGrp && curGrp.lines.length) groups.push(curGrp);
+  return { lines, apps: [...apps], groups, truncated };
 }
 
 async function handleSuggest(j, meta) {
   let items = [];
   if (Array.isArray(j.items)) items = j.items;
   else if (j.suggest && j.title) items = [j];
-  if (!j.suggest || !items.length) return;
+  // 被拒(suggest=false):存进 rejected.jsonl 作"回收站",可恢复。
+  // 只存进细判后判否的(场景闸门拦下的 deliver=false 不进这里,不存)。
+  if (!j.suggest || !items.length) {
+    if (meta && meta.raw) {
+      const rj = {
+        id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+        screen: String(meta.raw).slice(0, 1200),
+        scene: meta.scene ? { name: meta.scene.scene, why: meta.scene.why } : null,
+        dialog: meta.dialog || [], // Agent 判否的完整对话过程(回放用,和待办出生证同结构)
+        thinking: meta.thinking || '', // Agent 判否的自然语言思考
+        ts: new Date().toISOString(),
+      };
+      try { fs.appendFileSync(REJECT_FILE, JSON.stringify(rj) + '\n'); } catch (e) {}
+    }
+    return;
+  }
   for (const it of items) {
     const key = (it.title || '').trim();
     if (!key) continue;
@@ -287,6 +317,14 @@ async function handleSuggest(j, meta) {
       apps: meta?.apps || [],
       raw: meta?.raw || '',
       ts: new Date().toISOString(),
+      // 出生证:这条待办怎么来的。scene=场景判,trace=工具调用轨迹,steps=轮数。
+      birth: {
+        scene: meta?.scene ? { name: meta.scene.scene, deliver: meta.scene.deliver, why: meta.scene.why } : null,
+        trace: meta?.trace || [],
+        steps: meta?.steps || 1,
+        dialog: meta?.dialog || [], // 完整判读对话(可回放):user(屏幕)→assistant(思考+工具)→tool(结果)→…
+        thinking: meta?.thinking || '', // Agent 的自然语言思考(出生证回放用)
+      },
     };
     ensureSuggFile(); // 写前自愈:文件被误删也不丢这条
     fs.appendFileSync(SUGG_FILE, JSON.stringify(rec) + '\n');
@@ -297,13 +335,36 @@ async function handleSuggest(j, meta) {
 
 // 捕获层判读:场景闸门 + 按来源 app 分块细判。
 // 分块是结构性修复——多 app 区域原本被拍扁成一段无边界文本喂给 judge,
-// 导致 A 窗口的联系人名字(企业微信 kindeng)被误归到 B 窗口消息(WorkBuddy/Hy3)的说话人。
-// 按 app 分块后各块独立判读,名字无法跨窗口串味,无需在 prompt 层打补丁。
+// ── 上游 judgeScreen(按 app 分块串行) 替换为 judgeGroups(按几何区域并行) ──
+// 每个几何区域独立进场景闸门 + 独立判读。并行 scene、并行 judge。
+async function judgeGroups(inc, label) {
+  const grps = inc.groups;
+  if (!grps.length) return;
+  // 阶段1: 并行场景分类(全部组一起判,最慢的那组决定耗时)
+  const sres = await Promise.all(grps.map(g =>
+    agent.classifyScene(sceneText(g.lines)).then(sc => ({ ...g, sc, text: g.lines.join('\n') }))
+  ));
+  // 阶段2: 对有派活的组并行细判
+  const jobs = [];
+  for (const g of sres) {
+    if (!g.sc.deliver) {
+      log(`[${label}:scene] ${g.sc.scene} · 不派活,跳过 (${g.sc.why})`);
+      continue;
+    }
+    log(`[${label}:scene] ${g.sc.scene} · 可能派活 → 进细判`);
+    jobs.push(judge(g.text).then(j => {
+      log(`[${label}:judge] suggest=` + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
+      return handleSuggest(j, { apps: inc.apps, raw: g.text.slice(0, 2000), scene: g.sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
+    }));
+  }
+  if (jobs.length) await Promise.all(jobs);
+}
+
+// 保留上游 judgeScreen 作参考(按 app_name 分块,需辅助功能权限才能拿到 app 名)
 async function judgeScreen(inc) {
-  const sc = await agent.classifyScene(sceneFeatures(inc));
+  const sc = await agent.classifyScene(sceneText(inc.lines));
   if (!sc.deliver) { log(`[scene] ${sc.scene} · 不派活,跳过 (${sc.why})`); return; }
   log(`[scene] ${sc.scene} · 可能派活 → 进细判`);
-  // 按来源 app 聚行(行前缀 [app] / [app·区域]);同 app 内区域保持一起,跨 app 严格隔离。
   const byApp = new Map();
   for (const l of inc.lines) {
     const m = l.match(/^\[([^\]·]+)/);
@@ -326,13 +387,12 @@ async function tick() {
     const inc = await fetchContext();
     if (!inc.lines.length) { log('[tick] 无屏幕内容,跳过'); return; }
     const screenText = inc.lines.join('\n');
-    // 静止跳过:窗口内容和上次完全一致 → 屏幕没动,不调 API(省钱关键)
     const h = cheapHash(screenText);
-    if (h === lastWinHash) { return; } // 静默跳过,不刷日志
+    if (h === lastWinHash) { return; }
     lastWinHash = h;
     stats.rounds = (stats.rounds || 0) + 1;
-    log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 帧 ${screenText.length}字` + (inc.truncated ? ' [截断]' : '') + (inc.apps.includes('企业微信') ? ' [群聊]' : ''));
-    await judgeScreen(inc);
+    log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 行 ${screenText.length}字 ${inc.groups.length} 组` + (inc.truncated ? ' [截断]' : '') + (inc.apps.includes('企业微信') ? ' [群聊]' : ''));
+    await judgeGroups(inc, 'tick');
   } catch (e) {
     lastTs = savedLastTs;
     log('tick 错误: ' + e.message);
@@ -340,7 +400,7 @@ async function tick() {
 }
 
 // Obsidian vault 日常/ 目录:接入真正的 todo 文件系统做机械去重(可环境变量覆盖)
-const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/apple/Todo/todo/日常';
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/chancguo/Todo/todo/日常';
 
 // 扫描 vault 所有任务标题(- [ ]/- [x]/- [-]),加入 titleSeen。
 // 这样"我早已记过(甚至已完成)的事"再出现在屏幕上不会重复弹。

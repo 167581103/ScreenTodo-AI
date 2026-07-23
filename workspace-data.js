@@ -12,7 +12,8 @@ const os = require('os');
 
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
 const DECISIONS_FILE = path.join(__dirname, 'decisions.jsonl');
-const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/apple/Todo/todo/日常';
+const REJECT_FILE = path.join(__dirname, 'rejected.jsonl');
+const VAULT_DAILY = process.env.ORB_VAULT_DAILY || '/Users/chancguo/Todo/todo/日常';
 const LIFEOS_PLAN = path.join(os.homedir(), 'life-os/规划/阶段性目标.md');
 const SCREENPIPE = 'http://localhost:3030';
 // Screenpipe API 需 Bearer 鉴权(与 daemon fetchRaw / main.js screenRecent 一致)
@@ -77,6 +78,7 @@ function getRecall() {
       tag: tagFromContext(it.context) === '屏幕' && rec.apps && rec.apps.length ? rec.apps[0] : tagFromContext(it.context),
       time: rec.ts ? Date.parse(rec.ts) : 0,
       status, // null=pending, 'accepted'=已采纳, 'ignored'=已忽略
+      birth: rec.birth || null, // 出生证:场景判 + 工具轨迹 + 轮数 + 完整对话(溯源回放)
     });
   }
   for (const t of parseVaultTasks(VAULT_DAILY)) {
@@ -167,4 +169,33 @@ function search(q) {
   );
 }
 
-module.exports = { getRecall, getMeetings, getRoutines, getTimeline, search };
+// 被拒记录(回收站):进细判但 judge=false 的。可恢复成待办。
+function getRejected() {
+  const out = [];
+  for (const r of readJsonl(REJECT_FILE)) {
+    out.push({
+      kind: 'rejected',
+      id: r.id || null,
+      title: (r.screen || '').split('\n').find(l => l.trim()) || '（被拒，无标题）', // 首行作标题预览
+      screen: r.screen || '',
+      scene: r.scene || null,
+      dialog: r.dialog || [], // Agent 判否的完整对话(回放用)
+      thinking: r.thinking || '', // Agent 的自然语言思考
+      time: r.ts ? Date.parse(r.ts) : 0,
+    });
+  }
+  out.sort((a, b) => b.time - a.time);
+  return out.slice(0, 100);
+}
+
+// 恢复:把被拒记录从 rejected.jsonl 删除,用户手动决定要不要记成待办(此处只做"移出回收站")。
+function removeRejected(id) {
+  try {
+    const lines = fs.readFileSync(REJECT_FILE, 'utf8').split('\n').filter(l => l.trim());
+    const kept = lines.filter(l => { try { return JSON.parse(l).id !== id; } catch (e) { return true; } });
+    fs.writeFileSync(REJECT_FILE, kept.join('\n') + (kept.length ? '\n' : ''));
+    return true;
+  } catch (e) { return false; }
+}
+
+module.exports = { getRecall, getRejected, removeRejected, getMeetings, getRoutines, getTimeline, search };
