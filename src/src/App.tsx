@@ -210,17 +210,22 @@ function FilterTabs({ filter, onFilter, view }: { filter: string; onFilter: (f: 
     { f: 'pending', lbl: '待处理', id: 'c-pending' },
     { f: 'accepted', lbl: '已采纳', id: 'c-accepted' },
     { f: 'ignored', lbl: '已忽略', id: 'c-ignored' },
+    { f: 'rejected', lbl: '已拒', id: 'c-rejected' },
   ];
-  const [counts, setCounts] = useState({ all:0, pending:0, accepted:0, ignored:0 });
+  const [counts, setCounts] = useState({ all:0, pending:0, accepted:0, ignored:0, rejected:0 });
 
-  // 监听 recall-update 更新计数
+  // 监听 recall-update 更新计数(已拒来自独立数据源)
   useEffect(() => {
     const W = window.orb;
     const update = () => {
       const data = (window as any).__RECALL__ || [];
-      const cnt: any = { all: data.length, pending: 0, accepted: 0, ignored: 0 };
+      const cnt: any = { all: data.length, pending: 0, accepted: 0, ignored: 0, rejected: 0 };
       data.forEach((d: any) => { if (d.status==='accepted') cnt.accepted++; else if (d.status==='ignored') cnt.ignored++; else cnt.pending++; });
-      setCounts(cnt);
+      if (W?.getRejected) {
+        W.getRejected().then((rej: any[]) => { cnt.rejected = rej.length; setCounts({ ...cnt }); }).catch(() => setCounts({ ...cnt }));
+      } else {
+        setCounts({ ...cnt });
+      }
     };
     window.addEventListener('recall-update', update);
     W?.getRecall().then(() => update()).catch(() => {});
@@ -243,113 +248,248 @@ function ChatView({ sessions, activeSid, onSessionsUpdate, onActiveSid }: {
 }) {
   return <ChatViewImpl key={activeSid} sid={activeSid} />;
 }
+// ── ＠引用 + 「+」弹层图标常量──
+const ADD_ICON: Record<string,string> = {
+  paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>',
+  wrench: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+  link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7h3a5 5 0 010 10h-3m-6 0H6a5 5 0 010-10h3M8 12h8"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  chevronR: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>',
+  terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+  server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
+};
+const _cross = (a:{x:number;y:number}, b:{x:number;y:number}, c:{x:number;y:number}) => (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+const inTriangle = (P:{x:number;y:number}, B:{x:number;y:number}, C:{x:number;y:number}, M:{x:number;y:number}) => { const d1=_cross(M,P,B),d2=_cross(M,B,C),d3=_cross(M,C,P); return (d1>=0&&d2>=0&&d3>=0)||(d1<=0&&d2<=0&&d3<=0); };
+const RECENT_KEY = 'orb-recent-mentions';
+const chatDrafts = new Map<string,string>();
+
+type Mention = { type: string; name: string; label: string };
+type SubItem = { cat?: string; name: string; label: string; desc?: string; rawName?: string };
+type SubState = { loading: boolean; sections: { label: string; items: SubItem[] }[]; importLocal?: boolean };
+
 function ChatViewImpl({ sid }: { sid: string|null }) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string,string>>({});
+  const [canSend, setCanSend] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [subTab, setSubTab] = useState<string|null>(null);
+  const [subShow, setSubShow] = useState(false);
+  const [sub, setSub] = useState<SubState|null>(null);
+  const [recents, setRecents] = useState<Mention[]>(() => { try{ return JSON.parse(localStorage.getItem(RECENT_KEY)||'[]')||[]; }catch{ return []; } });
   const bodyRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLDivElement>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
+  const addPopRef = useRef<HTMLDivElement>(null);
+  const addMainRef = useRef<HTMLDivElement>(null);
+  const addSubRef = useRef<HTMLDivElement>(null);
+  const fileInRef = useRef<HTMLInputElement>(null);
+  const closeTimerRef = useRef(0);
+  const lastMouseRef = useRef<{x:number;y:number}|null>(null);
+  const focusedRowRef = useRef<HTMLElement|null>(null);
+  const pendingRangeRef = useRef<Range|null>(null);
 
+  // 草稿恢复 + 加载消息
   useEffect(() => {
+    const ta = taRef.current;
+    if (ta) { ta.innerHTML = (sid ? chatDrafts.get(sid) || '' : ''); autoGrow(ta); }
+    setCanSend(!!(ta && ta.textContent && ta.textContent.replace(/\u200B/g,'').trim()));
     if (!sid) return;
     const W = window.orb; if (!W) return;
-    W.getSession(sid).then(ses => { if (ses) setMessages(ses.messages); }).catch(()=>{});
-    setInput(drafts[sid] || '');
+    W.getSession(sid).then(ses => { if (ses) setMessages(ses.messages); }).catch(() => {});
+    if (ta) ta.innerHTML = (sid ? chatDrafts.get(sid) || '' : '');
   }, [sid]);
 
-  const send = useCallback(() => {
-    const W = window.orb; if (!W || busy || !input.trim() || !sid) return;
-    const text = input.trim();
-    setInput(''); setBusy(true);
-    setMessages(prev => [...prev, { role:'user', content:text }]);
-    let pending = '';
-
-    W.chatStream(text, {
-      onEvent(ev: AguiEvent) {
-        switch (ev.type) {
-          case 'TEXT_MESSAGE_START': pending = ''; break;
-          case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; break;
-          case 'TEXT_MESSAGE_END':
-            setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content:pending }]);
-            pending = ''; break;
-          case 'TOOL_CALL_START':
-            setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?'}]); break;
-          case 'TOOL_CALL_END':
-            setMessages(prev=>{const idx=prev.findLastIndex(m=>m.role==='tool'&&m.content===ev.toolName);if(idx>=0)return[...prev.slice(0,idx),{role:'tool',content:'✓ '+ev.toolName}];return prev;}); break;
-          case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
-        }
-      },
-      onDone(){ setBusy(false); setDrafts(prev=>({...prev,[sid]:''})); },
-      onError(err){ setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+err}]); setBusy(false); },
-    });
-  }, [input, busy, sid]);
-
+  // 滚动到底部
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages]);
 
-  // ── 光圈跟随光标(chat-glow + IBeam) ──
+  // ── contenteditable helpers ──
+  const autoGrow = (ta: HTMLDivElement) => { ta.style.height='auto'; ta.style.height=Math.min(120, ta.scrollHeight)+'px'; };
+  const getCaretRange = () => { const s=window.getSelection(); const ta=taRef.current; if(s&&s.rangeCount&&ta&&ta.contains(s.anchorNode)) return s.getRangeAt(0).cloneRange(); return null; };
+  const caretBeforeChar = () => { const s=window.getSelection(); if(!s||!s.rangeCount) return null; const r=s.getRangeAt(0), n=r.startContainer; if(n&&n.nodeType===3&&r.startOffset>0) return (n.textContent||'')[r.startOffset-1]; return null; };
+  const onInput = () => { const ta=taRef.current; if(!ta) return; if(ta.textContent==='') ta.innerHTML=''; autoGrow(ta); setCanSend(!!(ta.textContent||'').replace(/\u200B/g,'').trim()||ta.querySelector('.mention')!=null); if(caretBeforeChar()==='@'){ pendingRangeRef.current=getCaretRange(); openAdd(); } if(sid) chatDrafts.set(sid, ta.innerHTML); };
+
+  // ── 插入 mention (DOM, 与 workspace.html 一致) ──
+  const insertMention = (type: string, name: string, label: string) => {
+    const ta = taRef.current; if(!ta) return;
+    ta.focus();
+    let rng = pendingRangeRef.current || null;
+    if(!rng){ const s=window.getSelection(); if(s&&s.rangeCount) rng=s.getRangeAt(0); }
+    if(!rng){ rng=document.createRange(); rng.selectNodeContents(ta); rng.collapse(false); }
+    const sn=rng.startContainer, so=rng.startOffset;
+    let work=rng;
+    if(sn&&sn.nodeType===3&&so>0&&(sn.textContent||'')[so-1]==='@'){
+      work=document.createRange(); work.setStart(sn,so-1); work.setEnd(sn,so); work.deleteContents();
+    }
+    work.collapse(true);
+    const span=document.createElement('span');
+    span.className='mention'; span.contentEditable='false';
+    span.dataset.type=type; span.dataset.name=name;
+    span.appendChild(document.createTextNode(label));
+    const zw=document.createTextNode('\u200B');
+    work.insertNode(zw); work.insertNode(span);
+    const nr=document.createRange(); nr.setStartAfter(zw); nr.collapse(true);
+    const sel=window.getSelection(); if(sel){ sel.removeAllRanges(); sel.addRange(nr); }
+    pendingRangeRef.current=null; autoGrow(ta); onInput();
+  };
+
+  const addRecent = (type: string, name: string, label: string) => {
+    setRecents(prev => { const cur=prev.filter(m=>!(m.type===type&&m.name===name)); cur.unshift({type,name,label}); const r=cur.slice(0,9); try{localStorage.setItem(RECENT_KEY,JSON.stringify(r));}catch{} return r; });
+  };
+
+  // ── add-pop 开关 ──
+  const openAdd = useCallback(() => { setAddOpen(true); setSubShow(false); setSubTab(null); setSub(null); }, []);
+  const closeAdd = useCallback(() => { setAddOpen(false); setSubShow(false); setSubTab(null); setSub(null); if(focusedRowRef.current){ focusedRowRef.current.classList.remove('focus'); focusedRowRef.current=null; } }, []);
+  const toggleAdd = () => { if(addOpen) closeAdd(); else openAdd(); };
+
+  // 全局点击关闭
+  useEffect(() => { if(!addOpen) return; const onDown=(e:MouseEvent)=>{ const t=e.target as Node; if(addPopRef.current?.contains(t)||addBtnRef.current?.contains(t)) return; closeAdd(); }; document.addEventListener('mousedown',onDown); return ()=>document.removeEventListener('mousedown',onDown); }, [addOpen, closeAdd]);
+
+  // ── 二级子面板 ──
+  const fetchSub = useCallback(async (tab: string) => {
+    setSub((prev: any) => ({ loading:true, sections:[], importLocal: tab==='tool' }));
+    try {
+      if(tab==='tool'||tab==='connector'){
+        const r = await window.orb.toolsList(); const cats = (r&&(r as any).categories)||[];
+        const want: string[] = tab==='tool'?['builtin','local','mcp']:['connectors'];
+        const keep: any[] = [];
+        for(const c of cats){ if(want.includes(c.key)) keep.push(c); }
+        const sections = keep.map((c: any) => ({ label: c.label, items: (c.tools||[]).map((t: any) => ({ cat:c.key, name:t.name, label:t.label||t.name, desc:t.desc })) }));
+        if(tab==='tool'){
+          try{ const localX = JSON.parse(localStorage.getItem('orb-local-tools')||'[]'); if(localX.length) for(const s of sections){ if(s.items.some((it:SubItem)=>it.cat==='local')){ s.items=[...s.items,...localX.map((l:any)=>({cat:'local',name:l.name,label:l.label,desc:l.desc}))]; break; } } }catch{}
+        }
+        setSub({ loading:false, sections, importLocal: tab==='tool' });
+      }else if(tab==='session'){
+        const d = await window.orb.listSessions();
+        const items = (d.list||[]).map((s: SessionMeta) => ({ name:s.id, label:s.name, desc: (s.msgCount||0)+' 条消息', rawName:s.id }));
+        setSub({ loading:false, sections:[{ label:'', items }] });
+      }else if(tab==='file'){
+        const f = await window.orb.listFiles();
+        const items = (f||[]).map((fn: string) => ({ name:fn, label:fn, rawName:fn }));
+        setSub({ loading:false, sections:[{ label:'', items }] });
+      }
+    }catch{ setSub((prev: any) => ({ ...prev, loading:false })); }
+  }, []);
+
+  const openSub = useCallback((tab: string) => {
+    setSubTab(tab); setSubShow(true);
+    const pop = addPopRef.current; const main = addMainRef.current;
+    if(pop&&main){
+      const row = main.querySelector(`.add-row[data-to="${tab}"]`) as HTMLElement|null;
+      if(row){
+        const rt=row.getBoundingClientRect(), pt=pop.getBoundingClientRect();
+        const top=Math.max(0, rt.top-pt.top);
+        const avail=Math.max(120, pt.height-top);
+        if(addSubRef.current){ addSubRef.current.style.top=top+'px'; addSubRef.current.style.maxHeight=avail+'px'; }
+      }
+    }
+    fetchSub(tab);
+  }, [fetchSub]);
+
+  const pickSub = (item: SubItem) => { const type=subTab||''; const raw=item.rawName||item.name; insertMention(type, raw, item.label); addRecent(type, raw, item.label); closeAdd(); };
+
+  // 导入本地工具
+  const importLocalTool = () => {
+    const inp=document.createElement('input'); inp.type='file'; inp.accept='.sh,.py,.js,.rb';
+    inp.addEventListener('change',()=>{ const files=inp.files; if(!files) return; let localX:any[]=[]; try{localX=JSON.parse(localStorage.getItem('orb-local-tools')||'[]');}catch{} for(const f of Array.from(files)){ localX.push({name:f.name,label:f.name,desc:f.name.replace(/\.[^.]+$/,'')+'（从文件导入）',status:'active'}); } localStorage.setItem('orb-local-tools',JSON.stringify(localX)); if(subTab==='tool') fetchSub('tool'); });
+    inp.click();
+  };
+
+  // 文件选择
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => { const files=e.target.files; if(files) for(const f of Array.from(files)){ insertMention('file',f.name,f.name); addRecent('file',f.name,f.name); } e.target.value=''; closeAdd(); };
+
+  // Safe Triangle hover close
+  const handlePopMouseMove = useCallback((e: MouseEvent) => {
+    if(!subShow) return;
+    const subEl = addSubRef.current; if(!subEl) return;
+    const sr = subEl.getBoundingClientRect();
+    const inSub = e.clientX>=sr.left&&e.clientX<=sr.right&&e.clientY>=sr.top&&e.clientY<=sr.bottom;
+    const fr = focusedRowRef.current;
+    const inRow = fr ? (e.clientX>=fr.getBoundingClientRect().left&&e.clientX<=fr.getBoundingClientRect().right&&e.clientY>=fr.getBoundingClientRect().top&&e.clientY<=fr.getBoundingClientRect().bottom) : false;
+    if(inSub||inRow){ clearTimeout(closeTimerRef.current); return; }
+    if(lastMouseRef.current){
+      const B={x:sr.left,y:sr.top}, C={x:sr.left,y:sr.bottom}, M={x:e.clientX,y:e.clientY};
+      if(inTriangle(lastMouseRef.current,B,C,M)){ clearTimeout(closeTimerRef.current); return; }
+    }
+    clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = window.setTimeout(() => { setSubShow(false); setSubTab(null); if(focusedRowRef.current){ focusedRowRef.current.classList.remove('focus'); focusedRowRef.current=null; } }, 150);
+  }, [subShow]);
+
+  useEffect(() => { if(!addOpen||!subShow) return; const h=(e:MouseEvent)=>handlePopMouseMove(e); document.addEventListener('mousemove',h); return ()=>document.removeEventListener('mousemove',h); }, [addOpen, subShow, handlePopMouseMove]);
+
+  // ── 光圈跟随光标 ──
   useEffect(() => {
     const body = bodyRef.current; if (!body) return;
     const glow = document.getElementById('chat-glow'); if (!glow) return;
     let tx=0, ty=0, cx=0, cy=0, anim=0, inside=false, ibeam=false, selecting=false;
-    const tick = () => {
-      const k = (ibeam||selecting) ? 1 : 0.22;
-      cx += (tx-cx)*k; cy += (ty-cy)*k;
-      glow.style.left = cx+'px'; glow.style.top = cy+'px';
-      if (inside || Math.abs(tx-cx)>0.5 || Math.abs(ty-cy)>0.5) anim = requestAnimationFrame(tick);
-      else anim = 0;
-    };
+    const tick = () => { const k = (ibeam||selecting) ? 1 : 0.22; cx += (tx-cx)*k; cy += (ty-cy)*k; glow.style.left = cx+'px'; glow.style.top = cy+'px'; if (inside || Math.abs(tx-cx)>0.5 || Math.abs(ty-cy)>0.5) anim = requestAnimationFrame(tick); else anim = 0; };
     const overText = (el: Element|null) => !!(el && (el.closest('.answer')||el.closest('.msg')));
-    const move = (e: MouseEvent) => {
-      const r = body.getBoundingClientRect();
-      tx = e.clientX - r.left; ty = e.clientY - r.top + body.scrollTop;
-      const ni = overText(e.target as Element);
-      if (ni!==ibeam) { ibeam = ni; glow.classList.toggle('ibeam', ibeam); }
-      if (!anim) anim = requestAnimationFrame(tick);
-    };
-    const enter = () => { inside = true; };
-    const leave = () => { inside = false; ibeam = false; selecting = false; glow.classList.remove('ibeam','selecting'); };
+    const move = (e: MouseEvent) => { const r = body.getBoundingClientRect(); tx = e.clientX - r.left; ty = e.clientY - r.top + body.scrollTop; const ni = overText(e.target as Element); if (ni!==ibeam) { ibeam = ni; glow.classList.toggle('ibeam', ibeam); } if (!anim) anim = requestAnimationFrame(tick); };
+    const enter = () => { inside = true; }; const leave = () => { inside = false; ibeam = false; selecting = false; glow.classList.remove('ibeam','selecting'); };
     const down = (e: MouseEvent) => { if (overText(e.target as Element)) { selecting = true; glow.classList.add('selecting'); } };
     const up = () => { if (selecting) { selecting = false; glow.classList.remove('selecting'); } };
-    body.addEventListener('mousemove', move);
-    body.addEventListener('mouseenter', enter);
-    body.addEventListener('mouseleave', leave);
-    body.addEventListener('mousedown', down);
-    window.addEventListener('mouseup', up);
-    return () => {
-      body.removeEventListener('mousemove', move);
-      body.removeEventListener('mouseenter', enter);
-      body.removeEventListener('mouseleave', leave);
-      body.removeEventListener('mousedown', down);
-      window.removeEventListener('mouseup', up);
-    };
+    body.addEventListener('mousemove', move); body.addEventListener('mouseenter', enter); body.addEventListener('mouseleave', leave); body.addEventListener('mousedown', down); window.addEventListener('mouseup', up);
+    return () => { body.removeEventListener('mousemove', move); body.removeEventListener('mouseenter', enter); body.removeEventListener('mouseleave', leave); body.removeEventListener('mousedown', down); window.removeEventListener('mouseup', up); };
   }, [sid]);
 
-  // ── 语音输入(Web Speech API) ──
+  // ── 语音输入 ──
   const [recording, setRecording] = useState(false);
   const recogRef = useRef<any>(null);
   const toggleVoice = useCallback(() => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return;
-    if (recording) {
-      recogRef.current?.stop();
-      return;
-    }
-    const r = new SR();
-    r.lang = 'zh-CN'; r.interimResults = true; r.continuous = false;
-    recogRef.current = r;
-    r.onresult = (ev: any) => {
-      let t = '';
-      for (let i=0; i<ev.results.length; i++) t += ev.results[i][0].transcript;
-      setInput(prev => prev + t);
-    };
-    r.onend = () => setRecording(false);
-    r.onerror = () => setRecording(false);
-    r.start();
-    setRecording(true);
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition; if (!SR) return;
+    if (recording) { recogRef.current?.stop(); return; }
+    const r = new SR(); r.lang = 'zh-CN'; r.interimResults = true; r.continuous = false; recogRef.current = r;
+    r.onresult = (ev: any) => { let t = ''; for (let i=0; i<ev.results.length; i++) t += ev.results[i][0].transcript; const ta=taRef.current; if(ta){ ta.focus(); const s=window.getSelection(); const range=s?.rangeCount?s.getRangeAt(0):null; if(range&&ta.contains(range.commonAncestorContainer)){ range.deleteContents(); range.insertNode(document.createTextNode(t)); range.collapse(false); s?.removeAllRanges(); s?.addRange(range); } else { ta.appendChild(document.createTextNode(t)); } autoGrow(ta); onInput(); } };
+    r.onend = () => setRecording(false); r.onerror = () => setRecording(false);
+    r.start(); setRecording(true);
   }, [recording]);
+
+  // ── 发送 ──
+  const send = useCallback(() => {
+    const ta = taRef.current; const W = window.orb;
+    if (!ta || busy || !sid || !W) return;
+    const text = (ta.innerText||'').replace(/\u200B/g,'').replace(/\s+$/,'').trim();
+    if (!text) return;
+    const ms=[].slice.call(ta.querySelectorAll('.mention')).map((s: HTMLElement)=>({type:s.dataset.type,name:s.dataset.name,label:(s.textContent||'')}));
+    let sendText = text, msgHTML = ta.innerHTML.replace(/\u200B/g,'').replace(/\s+$/g,'');
+    if (ms.length) {
+      const g: any = {}; ms.forEach((m: any) => { (g[m.type]=g[m.type]||[]).push(m.label); });
+      const LM: any = { tool:'工具', connector:'连接器', file:'文件', session:'对话' };
+      const parts = Object.keys(g).map(k => LM[k]+'：'+g[k].join('、'));
+      sendText += '\n\n（引用提示：'+parts.join('；')+'）';
+    }
+    setBusy(true);
+    setMessages(prev => [...prev, { role:'user', content: msgHTML }]);
+    ta.innerHTML = ''; autoGrow(ta); chatDrafts.set(sid, ''); setCanSend(false); closeAdd();
+    let pending = '';
+    W.chatStream(sendText, {
+      onEvent(ev: AguiEvent) {
+        switch (ev.type) {
+          case 'TEXT_MESSAGE_START': pending = ''; break;
+          case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; break;
+          case 'TEXT_MESSAGE_END': setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content:pending }]); pending = ''; break;
+          case 'TOOL_CALL_START': setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?'}]); break;
+          case 'TOOL_CALL_END': setMessages(prev=>{const idx=prev.findLastIndex(m=>m.role==='tool'&&m.content===ev.toolName);if(idx>=0)return[...prev.slice(0,idx),{role:'tool',content:'✓ '+ev.toolName}];return prev;}); break;
+          case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
+        }
+      },
+      onDone(){ setBusy(false); },
+      onError(err){ setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+err}]); setBusy(false); },
+    });
+  }, [busy, sid, closeAdd]);
 
   // 自定义 overlay 滚动条
   useScrollbar('chat-body', 'cscroll', 'cthumb', 'chat-body');
+
+  const iconFor = (type: string) => type==='tool'?'wrench':type==='connector'?'link':type==='file'?'paperclip':'chat';
+  const tagFor = (type: string) => type==='tool'?'工具':type==='connector'?'连接器':type==='file'?'文件':'对话';
+  const iconForItem = (tab: string|null, cat?: string) => {
+    if(tab==='tool') return ADD_ICON[cat==='local'?'folder':cat==='mcp'?'server':'terminal'];
+    if(tab==='connector') return ADD_ICON.link;
+    if(tab==='session') return ADD_ICON.chat;
+    return ADD_ICON.paperclip;
+  };
 
   return (
     <div className="chat-page">
@@ -362,26 +502,89 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
       </div>
       <div className="vscroll" id="cscroll"><div className="thumb" id="cthumb" /></div>
       <div className="chat-input">
-        <div className="chat-bar">
-          <button className={`chat-mic${recording?' active':''}`} onClick={toggleVoice}>
-            <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" strokeLinecap="round"/></svg>
+        <div className="chat-bar" id="chat-bar">
+          <button className={`chat-add${addOpen?' active':''}`} ref={addBtnRef} onClick={toggleAdd} aria-label="添加引用" title="引用工具 / 连接器 / 文件 / 对话">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" strokeLinecap="round"/></svg>
           </button>
-          <textarea className="chat-text" rows={1} data-ph="发消息…" value={input}
-            onChange={e=>{setInput(e.target.value);const ta=e.target;ta.style.height='auto';ta.style.height=Math.min(120,ta.scrollHeight)+'px';}}
-            onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send();}}}
-            disabled={busy} />
-          <button className="chat-send" onClick={send} disabled={busy||!input.trim()}>
+          <button className={`chat-mic${recording?' active':''}`} onClick={toggleVoice}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </button>
+          <div ref={taRef} className="chat-text" contentEditable role="textbox" data-ph="发消息…"
+            onInput={onInput}
+            onKeyDown={e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); send(); } }}
+            suppressContentEditableWarning />
+          <button className="chat-send" onClick={send} disabled={busy||!canSend}>
             <span className="send-plane"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></span>
             <span className="send-logo"><svg viewBox="0 0 52 52"><path className="arc" d="M13 27C20 37 24 39 27 39 32 39 36 25 41 13"/></svg></span>
           </button>
         </div>
       </div>
+      {/* add-pop 引用弹层 */}
+      <div className={`add-pop${addOpen?' open':''}`} ref={addPopRef}
+        onMouseEnter={() => clearTimeout(closeTimerRef.current)}
+        onMouseLeave={() => { closeTimerRef.current = window.setTimeout(() => { setSubShow(false); setSubTab(null); if(focusedRowRef.current){ focusedRowRef.current.classList.remove('focus'); focusedRowRef.current=null; } }, 200); }}>
+        <div className="add-main" ref={addMainRef}>
+          <div className="add-vscroll"><div className="thumb add-vthumb" /></div>
+          <label className="add-row">
+            <span className="ar-ic" dangerouslySetInnerHTML={{__html: ADD_ICON.paperclip}} />
+            <span className="ar-txt">附件</span>
+            <input type="file" ref={fileInRef} multiple accept="*" style={{display:'none'}} onChange={onFileChange} />
+          </label>
+          <div className="add-sep" />
+          {recents.length>0 && <div className="add-section">最近使用</div>}
+          {recents.map((m,i) => (
+            <div key={i} className="add-row add-recent" onClick={()=>{ insertMention(m.type,m.name,m.label); closeAdd(); }}>
+              <span className="ar-ic" dangerouslySetInnerHTML={{__html: ADD_ICON[iconFor(m.type)]}} />
+              <span className="ar-txt">{m.label}</span>
+              <span className="ar-tag">{tagFor(m.type)}</span>
+            </div>
+          ))}
+          {recents.length>0 && <div className="add-sep" />}
+          {['tool','session','connector'].map(tab => (
+            <div key={tab} className="add-row" data-to={tab}
+              onMouseEnter={()=>{ clearTimeout(closeTimerRef.current); addMainRef.current?.querySelectorAll('.add-row.focus').forEach(el=>el.classList.remove('focus')); const row=addMainRef.current?.querySelector(`.add-row[data-to="${tab}"]`) as HTMLElement; if(row){ row.classList.add('focus'); focusedRowRef.current=row; } openSub(tab); }}
+              onMouseLeave={(e)=>{ lastMouseRef.current={x:e.clientX,y:e.clientY}; }}
+              onClick={()=>{ addMainRef.current?.querySelectorAll('.add-row.focus').forEach(el=>el.classList.remove('focus')); const row=addMainRef.current?.querySelector(`.add-row[data-to="${tab}"]`) as HTMLElement; if(row){ row.classList.add('focus'); focusedRowRef.current=row; } openSub(tab); }}>
+              <span className="ar-ic" dangerouslySetInnerHTML={{__html: ADD_ICON[tab==='tool'?'wrench':tab==='session'?'chat':'link']}} />
+              <span className="ar-txt">{tab==='tool'?'工具':tab==='session'?'对话':'连接器'}</span>
+              <span className="ar-chev" dangerouslySetInnerHTML={{__html: ADD_ICON.chevronR}} />
+            </div>
+          ))}
+        </div>
+        <div className={`add-sub${subShow?' show':''}`} ref={addSubRef}>
+          <div className="add-sub-body">
+            {sub?.loading ? <div className="add-empty">加载中…</div>
+              : sub && sub.sections.length ? sub.sections.map((sec, si) => (
+                <div key={si}>
+                  {sec.label && <div className="add-section">{sec.label}</div>}
+                  {sec.items.length===0 ? <div className="add-empty">暂无已接入的{sec.label||'项'}</div>
+                    : sec.items.map((it, ii) => (
+                      <div key={ii} className="add-item" onClick={() => pickSub(it)}>
+                        <div className="ai-ic" dangerouslySetInnerHTML={{__html: iconForItem(subTab, it.cat)}} />
+                        <div className="ai-main"><div className="ai-name">{it.label}</div>{it.desc && <div className="ai-desc">{it.desc}</div>}</div>
+                      </div>
+                    ))}
+                  {si<(sub.sections.length-1) && <div className="add-sep" />}
+                </div>
+              ))
+              : <div className="add-empty">暂无已接入的{subTab==='tool'?'工具':subTab==='connector'?'连接器':'项'}</div>}
+            {sub?.importLocal && (
+              <div className="add-action" onClick={importLocalTool}>
+                <span className="aa-ic" dangerouslySetInnerHTML={{__html: ADD_ICON.plus}} />
+                <span>导入本地工具</span>
+              </div>
+            )}
+          </div>
+          <div className="add-vscroll2"><div className="thumb add-vthumb2" /></div>
+        </div>
+      </div>
     </div>
   );
 }
+
 function ChatBubble({ message }: { message: Message }) {
   if (message.role==='tool') return <div className="tool-line"><span className="th"><span className="ic">✓</span><span className="sum">{message.content}</span></span></div>;
-  if (message.role==='user') return <div className="msg u">{message.content}</div>;
+  if (message.role==='user') return <div className="msg u" dangerouslySetInnerHTML={{__html: message.content}} />;
   return <div className="answer" dangerouslySetInnerHTML={{__html:md(message.content)}} />;
 }
 
@@ -391,12 +594,14 @@ const HEAD: Record<string,[string,string]> = {
   pending:['待处理','尚未采纳或忽略的捕获。'],
   accepted:['已采纳','已加入 vault 的待办。'],
   ignored:['已忽略','不追踪的捕获。'],
+  rejected:['已拒（回收站）','Agent 判否的记录，误拒的可恢复。'],
 };
 const EMPTY: Record<string,[string,string]> = {
   all:['还没有捕获到任何内容','开着的应用、文档、会议都会在后台被自动读取。'],
   pending:['没有待处理的捕获','全部处理完了。'],
   accepted:['没有任何已采纳的','采纳会加入 vault 清单。'],
   ignored:['没有任何已忽略的','忽略会移出视野。'],
+  rejected:['没有被拒的记录','Agent 判否的会落在这里，可恢复。'],
 };
 const ICON_EMPTY = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h0"/></svg>';
 
@@ -430,7 +635,7 @@ function FeedView({ filter }: { filter: string }) {
 
   // 更新 tab 计数
   useEffect(() => {
-    for (const k of ['all','pending','accepted','ignored'] as const)
+    for (const k of ['all','pending','accepted','ignored','rejected'] as const)
       { const el = document.getElementById('c-'+k); if (el) el.textContent = String(cnt[k]); }
   }, [cnt]);
 

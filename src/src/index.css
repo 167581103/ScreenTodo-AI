@@ -372,6 +372,15 @@
   .chat-add.active{color:var(--accent-ink);background:var(--accent-wash)}
   .chat-add svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round}
 
+  .chat-mic{
+    width:34px;height:34px;flex:none;border:none;border-radius:50%;cursor:pointer;
+    background:transparent;color:var(--ink-3);display:flex;align-items:center;justify-content:center;
+    transition:background .14s var(--e-out),color .14s var(--e-out);
+  }
+  .chat-mic:hover{color:var(--ink);background:color-mix(in srgb,var(--ink) 7%,transparent)}
+  .chat-mic.active{color:#ef4444;background:color-mix(in srgb,#ef4444 12%,transparent)}
+  .chat-mic svg{width:20px;height:20px}
+
   /* 圆角矩形发送按钮:沿用 logo 资产动画(纸飞机 hover 弹性飞出 → logo 弧勾滑入),仅外形由圆改方 */
   .chat-send{
     position:relative;width:52px;height:34px;flex:none;border:none;border-radius:14px;cursor:pointer;overflow:hidden;
