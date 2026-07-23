@@ -235,7 +235,9 @@ module.exports = function createAgent(CONFIG, log, tools) {
         const raw = msg.content || '';
         const jsonMatch = raw.match(/\{[\s\S]*\}/);
         const thinking = jsonMatch ? raw.slice(0, jsonMatch.index).replace(/<\/?思考>/g,'').trim() : raw.trim();
-        const j = jsonMatch ? JSON.parse(jsonMatch[0]) : safeParse(raw);
+        // 模型有时会在自然语言思考中带示例对象或不完整 JSON；统一走容错解析，
+        // 避免单个区域的格式问题中断整轮并行判读。
+        const j = safeParse(jsonMatch ? jsonMatch[0] : raw);
         // 把思考文本塞回 messages 里 assistant 的 content(供 buildDialog 回放)
         if (thinking) messages[messages.length-1] = { ...messages[messages.length-1], content: thinking };
         j._steps = steps; j._usage = usage; j._trace = trace; j._dialog = buildDialog(messages);

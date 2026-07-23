@@ -18,9 +18,6 @@ const LOG_PATH = path.join(__dirname, 'orb_run.log');
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
 const DECISIONS_FILE = path.join(__dirname, 'decisions.jsonl');
 const PAUSE_FILE = path.join(__dirname, 'monitor.paused');
-// todo_write.py 接入 Obsidian vault,替代裸写 captured_todos.md。可用环境变量覆盖以适配你自己的路径。
-const TODO_WRITE = process.env.ORB_TODO_WRITE || '/Users/apple/WorkBuddy/Todo/scripts/todo_write.py';
-const PYTHON = process.env.ORB_PYTHON || '/Users/apple/.workbuddy/binaries/python/versions/3.13.12/bin/python3';
 // 工作台数据层(文件即真相,不引 SQLite)
 const wsData = require('./workspace-data');
 // 工具可配置目录(内置 / 本地 / MCP / 官方连接器 四类)
@@ -213,28 +210,25 @@ function dismissSuggestion() {
 }
 
 function openSuggestionWindow(item) {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  const workArea = screen.getPrimaryDisplay().workArea;
   if (suggWin && !suggWin.isDestroyed()) suggWin.destroy();
-  suggWin = new BrowserWindow({
-    width: 380, height: 160, x: width - 404, y: height - 184,
+  const win = new BrowserWindow({
+    width: 380, height: 160,
+    x: workArea.x + workArea.width - 404,
+    y: workArea.y + workArea.height - 184,
     frame: false, transparent: true, resizable: false,
     alwaysOnTop: true, hasShadow: false, skipTaskbar: true,
     show: false, focusable: true, // 可聚焦:点击落在弹窗自身,不穿透到下方窗口(否则会误激活工作台)
     acceptFirstMouse: true, // 首次点击即生效,无需先激活窗口
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
-  suggWin.setAlwaysOnTop(true, 'floating');
-  suggWin.loadFile('suggestion.html');
-  suggWin.webContents.once('did-finish-load', () => {
-    suggWin.webContents.send('suggestion', item);
-    // 按内容动态定高:长标题/正文/原文完整展开,不裁切;超出 560 上限再内部滚动
-    setTimeout(() => {
-      suggWin.webContents.executeJavaScript('Math.ceil(document.documentElement.scrollHeight)').then((h) => {
-        const H = Math.max(160, Math.min(560, h || 160));
-        suggWin.setBounds({ width: 380, height: H, x: width - 380 - 24, y: height - H - 24 });
-        suggWin.showInactive(); // 显示但不抢焦点;点击按钮仍可用(IPC),只是焦点留在你正在用的窗口
-      }).catch(() => suggWin.showInactive());
-    }, 60);
+  suggWin = win;
+  win.setAlwaysOnTop(true, 'floating');
+  win.loadFile('dist/suggestion.html');
+  win.webContents.once('did-finish-load', () => {
+    if (win.isDestroyed()) return;
+    win.webContents.send('suggestion', item);
+    win.showInactive(); // 显示但不抢焦点；React 内容就绪后会通过 suggestion:resize 动态定高
   });
 }
 
@@ -289,7 +283,13 @@ ipcMain.on('ignore-todo', (e, item) => { if (item && item._id) logDecision(item.
 ipcMain.on('suggestion:resize', (e, height) => {
   if (suggWin && !suggWin.isDestroyed()) {
     const h = Math.max(160, Math.min(Number(height) || 200, 560));
-    suggWin.setBounds({ width: 380, height: h }, false);
+    const workArea = screen.getDisplayMatching(suggWin.getBounds()).workArea;
+    suggWin.setBounds({
+      width: 380,
+      height: h,
+      x: workArea.x + workArea.width - 380 - 24,
+      y: workArea.y + workArea.height - h - 24,
+    }, false);
   }
 });
 ipcMain.on('quit-app', () => app.quit());
@@ -489,7 +489,7 @@ ipcMain.handle('chat:reset', () => {
 ipcMain.handle('chat:list-files', () => {
   try {
     const f = fs.readdirSync(__dirname);
-    const skip = /^(\.git|node_modules|\.screenpipe|\.workbuddy|assets|prompts|sinks|orb\.html|suggestion\.html|tray-icon\.png|package-lock\.json|decisions\.jsonl|suggestions\.jsonl|sessions\.json|\.gitignore|config\.json)$/;
+    const skip = /^(\.git|node_modules|\.screenpipe|\.workbuddy|assets|prompts|sinks|tray-icon\.png|package-lock\.json|decisions\.jsonl|suggestions\.jsonl|sessions\.json|\.gitignore|config\.json)$/;
     const out = [];
     for (const fn of f) {
       if (skip.test(fn)) continue;
@@ -501,25 +501,6 @@ ipcMain.handle('chat:list-files', () => {
     return out;
   } catch (e) { return []; }
 });
-
-// Markdown 渲染在主进程(Node,可安全 require;preload 在 sandbox 下不能 require 第三方)。
-// dompurify 需 DOM,主进程无 DOM → 用 marked 解析 + 轻量 sanitize(去 script/on* /javascript:)。
-let _marked = null;
-function renderMarkdownMain(md) {
-  try {
-    if (!_marked) _marked = require('marked');
-    let html = _marked.parse(String(md || ''), { breaks: true, gfm: true });
-    html = html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-      .replace(/javascript:/gi, '');
-    return html;
-  } catch (e) {
-    // 兜底:纯文本转义 + 换行
-    return String(md || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).replace(/\n/g, '<br>');
-  }
-}
-ipcMain.handle('chat:renderMarkdown', (e, md) => renderMarkdownMain(md));
 
 // ---------- 工作台窗口 ----------
 let workspaceWin = null;

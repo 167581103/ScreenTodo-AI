@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import type { SessionMeta, Message, AguiEvent } from './types';
 import { md } from './md';
+
+// 用户消息来自 contenteditable，需要保留 mention 样式，但不能把粘贴进来的任意 HTML
+// 持久化到 sessions.json 后再次执行。
+function sanitizeUserMessageHtml(html: string): string {
+  return DOMPurify.sanitize(String(html || ''), {
+    ALLOWED_TAGS: ['span', 'br'],
+    ALLOWED_ATTR: ['class', 'data-type', 'data-name', 'contenteditable'],
+  });
+}
 
 // ── 主应用 ──
 export default function App() {
@@ -71,7 +81,7 @@ export default function App() {
 // ── 会话区域(标签 + 列表 + 新建) ──
 function SessionSection({ sessions, activeSid, onUpdate, onSwitch, view, onSetView }: {
   sessions: SessionMeta[]; activeSid: string|null;
-  onUpdate: (s: SessionMeta[]) => void; onSwitch: (id: string) => void;
+  onUpdate: React.Dispatch<React.SetStateAction<SessionMeta[]>>; onSwitch: (id: string) => void;
   view: string; onSetView: (v: 'chat'|'feed'|'settings') => void;
 }) {
   const create = useCallback(async () => {
@@ -96,7 +106,10 @@ function SessionSection({ sessions, activeSid, onUpdate, onSwitch, view, onSetVi
   const reorder = useCallback(async (ids: string[]) => {
     const W = window.orb; if (!W) return;
     await W.reorderSessions(ids);
-    onUpdate(prev => ids.map(id => prev.find(s => s.id === id)!));
+    onUpdate(prev => {
+      const byId = new Map(prev.map(s => [s.id, s]));
+      return ids.map(id => byId.get(id)).filter((s): s is SessionMeta => !!s);
+    });
   }, [onUpdate]);
 
   // 切到非对话视图时清除会话高亮
@@ -293,12 +306,12 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
   // 草稿恢复 + 加载消息
   useEffect(() => {
     const ta = taRef.current;
-    if (ta) { ta.innerHTML = (sid ? chatDrafts.get(sid) || '' : ''); autoGrow(ta); }
+    if (ta) { ta.innerHTML = sanitizeUserMessageHtml(sid ? chatDrafts.get(sid) || '' : ''); autoGrow(ta); }
     setCanSend(!!(ta && ta.textContent && ta.textContent.replace(/\u200B/g,'').trim()));
     if (!sid) return;
     const W = window.orb; if (!W) return;
     W.getSession(sid).then(ses => { if (ses) setMessages(ses.messages); }).catch(() => {});
-    if (ta) ta.innerHTML = (sid ? chatDrafts.get(sid) || '' : '');
+    if (ta) ta.innerHTML = sanitizeUserMessageHtml(sid ? chatDrafts.get(sid) || '' : '');
   }, [sid]);
 
   // 滚动到底部
@@ -308,9 +321,9 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
   const autoGrow = (ta: HTMLDivElement) => { ta.style.height='auto'; ta.style.height=Math.min(120, ta.scrollHeight)+'px'; };
   const getCaretRange = () => { const s=window.getSelection(); const ta=taRef.current; if(s&&s.rangeCount&&ta&&ta.contains(s.anchorNode)) return s.getRangeAt(0).cloneRange(); return null; };
   const caretBeforeChar = () => { const s=window.getSelection(); if(!s||!s.rangeCount) return null; const r=s.getRangeAt(0), n=r.startContainer; if(n&&n.nodeType===3&&r.startOffset>0) return (n.textContent||'')[r.startOffset-1]; return null; };
-  const onInput = () => { const ta=taRef.current; if(!ta) return; if(ta.textContent==='') ta.innerHTML=''; autoGrow(ta); setCanSend(!!(ta.textContent||'').replace(/\u200B/g,'').trim()||ta.querySelector('.mention')!=null); if(caretBeforeChar()==='@'){ pendingRangeRef.current=getCaretRange(); openAdd(); } if(sid) chatDrafts.set(sid, ta.innerHTML); };
+  const onInput = () => { const ta=taRef.current; if(!ta) return; if(ta.textContent==='') ta.innerHTML=''; autoGrow(ta); setCanSend(!!(ta.textContent||'').replace(/\u200B/g,'').trim()||ta.querySelector('.mention')!=null); if(caretBeforeChar()==='@'){ pendingRangeRef.current=getCaretRange(); openAdd(); } if(sid) chatDrafts.set(sid, sanitizeUserMessageHtml(ta.innerHTML)); };
 
-  // ── 插入 mention (DOM, 与 workspace.html 一致) ──
+  // ── 插入 mention（直接操作 contenteditable DOM）──
   const insertMention = (type: string, name: string, label: string) => {
     const ta = taRef.current; if(!ta) return;
     ta.focus();
@@ -452,7 +465,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
     const text = (ta.innerText||'').replace(/\u200B/g,'').replace(/\s+$/,'').trim();
     if (!text) return;
     const ms=[].slice.call(ta.querySelectorAll('.mention')).map((s: HTMLElement)=>({type:s.dataset.type,name:s.dataset.name,label:(s.textContent||'')}));
-    let sendText = text, msgHTML = ta.innerHTML.replace(/\u200B/g,'').replace(/\s+$/g,'');
+    let sendText = text, msgHTML = sanitizeUserMessageHtml(ta.innerHTML.replace(/\u200B/g,'').replace(/\s+$/g,''));
     if (ms.length) {
       const g: any = {}; ms.forEach((m: any) => { (g[m.type]=g[m.type]||[]).push(m.label); });
       const LM: any = { tool:'工具', connector:'连接器', file:'文件', session:'对话' };
@@ -470,7 +483,16 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
           case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; break;
           case 'TEXT_MESSAGE_END': setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content:pending }]); pending = ''; break;
           case 'TOOL_CALL_START': setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?'}]); break;
-          case 'TOOL_CALL_END': setMessages(prev=>{const idx=prev.findLastIndex(m=>m.role==='tool'&&m.content===ev.toolName);if(idx>=0)return[...prev.slice(0,idx),{role:'tool',content:'✓ '+ev.toolName}];return prev;}); break;
+          case 'TOOL_CALL_END': setMessages(prev=>{
+            let idx = -1;
+            for (let i = prev.length - 1; i >= 0; i--) {
+              if (prev[i].role === 'tool' && prev[i].content === ev.toolName) { idx = i; break; }
+            }
+            if (idx < 0) return prev;
+            const next = [...prev];
+            next[idx] = { role:'tool', content:'✓ '+ev.toolName };
+            return next;
+          }); break;
           case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
         }
       },
@@ -584,7 +606,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
 
 function ChatBubble({ message }: { message: Message }) {
   if (message.role==='tool') return <div className="tool-line"><span className="th"><span className="ic">✓</span><span className="sum">{message.content}</span></span></div>;
-  if (message.role==='user') return <div className="msg u" dangerouslySetInnerHTML={{__html: message.content}} />;
+  if (message.role==='user') return <div className="msg u" dangerouslySetInnerHTML={{__html: sanitizeUserMessageHtml(message.content)}} />;
   return <div className="answer" dangerouslySetInnerHTML={{__html:md(message.content)}} />;
 }
 
@@ -733,7 +755,7 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
         <div className="sec"><div className="lbl">状态</div><div className="val"><span className={`stline ${stCls}`}>{stTxt}</span></div></div>
 
         {item.kind==='rejected' ? (<>
-          {item.raw && <div className="sec"><div className="lbl">屏幕原文</div><div className="rawbox">{escHtml(item.raw)}</div></div>}
+          {item.raw && <div className="sec"><div className="lbl">屏幕原文</div><div className="rawbox">{item.raw}</div></div>}
           {item.birth?.scene && <div className="sec"><div className="lbl">场景判</div><div className="val mut">{item.birth.scene.name||'—'} · {item.birth.scene.why||''}</div></div>}
           {item.birth?.thinking && <div className="sec"><div className="lbl">Agent 思考</div><div className="answer" dangerouslySetInnerHTML={{__html:md(item.birth.thinking)}} /></div>}
           {item.birth?.dialog?.length ? <div className="sec"><div className="lbl">判读对话</div><DialogFlow dialog={item.birth.dialog} /></div> : null}
@@ -745,10 +767,10 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
         </>) : item.kind==='task' ? (
           <div className="sec"><div className="lbl">来源</div><div className="val mut">vault · 日常/{item.file||''}</div></div>
         ) : (<>
-          {apps.length ? <div className="sec"><div className="lbl">来源</div><div className="chips">{apps.map((a:string)=>'<span class="chip">'+escHtml(a)+'</span>')}</div></div> : null}
+          {apps.length ? <div className="sec"><div className="lbl">来源</div><div className="chips">{apps.map((a:string)=><span className="chip" key={a}>{a}</span>)}</div></div> : null}
           {item.reason && <div className="sec"><div className="lbl">为什么捕获</div><div className="val mut">{item.reason}</div></div>}
           {item.context && <div className="sec"><div className="lbl">触发片段</div><div className="val">{item.context}</div></div>}
-          {item.raw && <div className="sec"><div className="lbl">触发时的屏幕上下文</div><div className="rawbox">{escHtml(item.raw)}</div></div>}
+          {item.raw && <div className="sec"><div className="lbl">触发时的屏幕上下文</div><div className="rawbox">{item.raw}</div></div>}
           {item.birth?.thinking && <div className="sec"><div className="lbl">Agent 思考</div><div className="answer" dangerouslySetInnerHTML={{__html:md(item.birth.thinking)}} /></div>}
           {item.birth?.dialog?.length ? <div className="sec"><div className="lbl">判读对话</div><DialogFlow dialog={item.birth.dialog} /></div> : null}
         </>)}
@@ -761,12 +783,12 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
 
 function DialogFlow({ dialog }: { dialog: any[] }) {
   return <div className="dlg-flow">{dialog.map((m,i)=>{
-    if (m.role==='user') return <div key={i} className="dlg msg u">{escHtml((m.content||'').slice(0,500))}</div>;
-    if (m.role==='tool') return <div key={i} className="dlg tool-r"><span className="dlg-ic">✓</span><span className="dlg-tx">{escHtml((m.content||'').slice(0,300))}</span></div>;
+    if (m.role==='user') return <div key={i} className="dlg msg u">{(m.content||'').slice(0,500)}</div>;
+    if (m.role==='tool') return <div key={i} className="dlg tool-r"><span className="dlg-ic">✓</span><span className="dlg-tx">{(m.content||'').slice(0,300)}</span></div>;
     if (m.role==='assistant') {
       const txt = (m.content||'').trim();
-      const tc = (m.tool_calls||[]).map((c:any,i:number)=><div key={i} className="dlg tool-r"><span className="dlg-ic">○</span><span className="dlg-tx">{toolVerb(c.name)}{c.args&&Object.keys(c.args).length?<span className="b-arg">{escHtml(JSON.stringify(c.args))}</span>:''}</span></div>);
-      return <React.Fragment key={i}>{(txt?<div className="dlg msg a">{escHtml(txt)}</div>:'')}{tc}</React.Fragment>;
+      const tc = (m.tool_calls||[]).map((c:any,i:number)=><div key={i} className="dlg tool-r"><span className="dlg-ic">○</span><span className="dlg-tx">{toolVerb(c.name)}{c.args&&Object.keys(c.args).length?<span className="b-arg">{JSON.stringify(c.args)}</span>:''}</span></div>);
+      return <React.Fragment key={i}>{(txt?<div className="dlg msg a">{txt}</div>:'')}{tc}</React.Fragment>;
     }
     return null;
   })}</div>;

@@ -11,6 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Electron-32-47848F?logo=electron&logoColor=white" alt="Electron" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111" alt="React" />
   <img src="https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white" alt="Node.js" />
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
 </p>
@@ -27,7 +28,7 @@ Important action items get buried. Orbit sits in your macOS menu bar and:
 3. **Surfaces suggestions** in a native notification
 4. **Writes structured todos** to your Obsidian vault when you accept
 
-Everything runs locally — only anonymized screen text snippets leave your machine (for LLM inference).
+Screen recording and storage stay local. OCR text selected for inference is sent to the configured LLM provider unless you use a local model endpoint.
 
 ## Architecture
 
@@ -45,6 +46,8 @@ Recording Layer          Reasoning Layer           Writing Layer
 ```
 
 Three layers, decoupled by data contracts — swap any layer independently.
+
+The Electron renderer is a React 19 + TypeScript + Vite multi-page application. Both the workspace and suggestion popup are built from React entries; the tray, IPC bridge, and background agent remain native Electron/Node.js services.
 
 ## Quick Start
 
@@ -123,16 +126,17 @@ Full schema: [config.example.json](./config.example.json) · Sink protocol: [SIN
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ORB_TODO_WRITE` | `Todo/scripts/todo_write.py` | Path to todo writer script |
-| `ORB_PYTHON` | managed Python 3.13 | Python interpreter |
-| `ORB_VAULT_DAILY` | `Todo/todo/日常` | Obsidian daily vault path |
+| `ORB_PYTHON` | `python3` | Python interpreter |
+| `ORB_VAULT_DAILY` | `~/Todo/todo/日常` | Obsidian daily vault path |
+| `ORB_SP_DATA` | workspace `.screenpipe` | Screenpipe data directory |
 | `ORB_SP_BIN` | `screenpipe` | Screenpipe binary path |
 | `ORB_WEBHOOK_URL` | — | Webhook sink target URL |
 
 ## Privacy
 
 - `config.json` (API keys), `suggestions.jsonl` / `decisions.jsonl` (screen content) are **gitignored**
-- Screen recordings stay on disk — only OCR text is sent to the LLM
-- All data lives on your machine. No cloud database, no telemetry.
+- Screen recordings stay on disk; selected OCR text is sent to the configured LLM endpoint for inference
+- Suggestions, decisions, sessions, and Screenpipe recordings are stored locally; there is no application telemetry
 
 ## License
 

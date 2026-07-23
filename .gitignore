@@ -30,3 +30,4 @@ rejected.jsonl
 dist/
 src/node_modules/
 src/dist/
+.playwright-cli/

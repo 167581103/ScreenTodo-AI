@@ -27,7 +27,21 @@ export interface AguiEvent {
   error?: string;
 }
 
+export interface SuggestionItem {
+  title?: string;
+  reason?: string;
+  context?: string;
+  trigger?: string;
+  _id?: string;
+  apps?: string[];
+  raw?: string;
+}
+
 export interface OrbAPI {
+  onSuggestion: (cb: (item: SuggestionItem) => void) => () => void;
+  addTodo: (item: SuggestionItem) => void;
+  ignore: (item: SuggestionItem) => void;
+  resizePopup: (height: number) => void;
   listSessions: () => Promise<SessionListResponse>;
   getSession: (id: string) => Promise<Session | null>;
   createSession: () => Promise<SessionListResponse>;
