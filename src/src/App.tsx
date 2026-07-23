@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import DOMPurify from 'dompurify';
 import type { SessionMeta, Message, AguiEvent } from './types';
 import { md } from './md';
+import { formatUserMessageHtml as formatUserMessageHtmlRaw } from '../user-message-display.js';
 
 // 用户消息来自 contenteditable，需要保留 mention 样式，但不能把粘贴进来的任意 HTML
 // 持久化到 sessions.json 后再次执行。
@@ -10,6 +11,11 @@ function sanitizeUserMessageHtml(html: string): string {
     ALLOWED_TAGS: ['span', 'br'],
     ALLOWED_ATTR: ['class', 'data-type', 'data-name', 'contenteditable'],
   });
+}
+
+/** 用户气泡展示：优先用持久化的蓝字 HTML；旧会话从「引用提示」回退还原 mention。 */
+function formatUserMessageHtml(content: string, html?: string): string {
+  return sanitizeUserMessageHtml(formatUserMessageHtmlRaw(content, html));
 }
 
 // ── 主应用 ──
@@ -481,10 +487,11 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
       sendText += '\n\n（引用提示：'+parts.join('；')+'）';
     }
     setBusy(true);
-    setMessages(prev => [...prev, { role:'user', content: msgHTML }]);
+    // content=Agent 文本；html=气泡蓝字。两者一并持久化，切会话后仍只展示引用蓝字。
+    setMessages(prev => [...prev, { role:'user', content: sendText, html: msgHTML }]);
     ta.innerHTML = ''; autoGrow(ta); chatDrafts.set(sid, ''); setCanSend(false); closeAdd();
     let pending = '';
-    W.chatStream(sendText, {
+    W.chatStream({ text: sendText, html: msgHTML }, {
       onEvent(ev: AguiEvent) {
         switch (ev.type) {
           case 'TEXT_MESSAGE_START': pending = ''; break;
@@ -630,7 +637,7 @@ function ChatBubble({ message }: { message: Message }) {
       </div>
     );
   }
-  if (message.role==='user') return <div className="msg u" dangerouslySetInnerHTML={{__html: sanitizeUserMessageHtml(message.content)}} />;
+  if (message.role==='user') return <div className="msg u" dangerouslySetInnerHTML={{__html: formatUserMessageHtml(message.content, message.html)}} />;
   return <div className="answer" dangerouslySetInnerHTML={{__html:md(message.content)}} />;
 }
 
