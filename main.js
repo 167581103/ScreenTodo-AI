@@ -22,6 +22,7 @@ const PAUSE_FILE = path.join(__dirname, 'monitor.paused');
 const wsData = require('./workspace-data');
 // 工具可配置目录(内置 / 本地 / MCP / 官方连接器 四类)
 const toolCatalog = require('./tools-catalog');
+const { forcedToolForChat } = require('./chat-routing');
 // 写入层 sink(存储可插拔,见 SINK_SPEC.md)
 const { sinkAdd } = require('./sink.js');
 
@@ -66,7 +67,23 @@ const chatTools = {
             const k = r.title || JSON.stringify(r); if (!seen.has(k)) { seen.add(k); rs.push(r); }
           }
         }
-        return JSON.stringify((rs || []).slice(0, 15)).slice(0, 3000) || '[]';
+        // 始终返回合法 JSON；不要直接截断 JSON 字符串，否则模型会误判记录数量和内容。
+        const compact = [];
+        for (const r of (rs || []).slice(0, 30)) {
+          const item = {
+            kind: r.kind || 'capture',
+            title: String(r.title || '').slice(0, 120),
+            reason: String(r.reason || '').slice(0, 180),
+            context: String(r.context || r.screen || r.raw || '').slice(0, 360),
+            apps: (r.apps || []).slice(0, 4),
+            status: r.status || '',
+            time: r.time || 0,
+          };
+          const candidate = JSON.stringify({ query: q, total: rs.length, items: [...compact, item] });
+          if (candidate.length > 3500) break;
+          compact.push(item);
+        }
+        return JSON.stringify({ query: q, total: rs.length, items: compact });
       } catch (e) { return '检索失败: ' + e.message; }
     },
   },
@@ -470,7 +487,9 @@ ipcMain.on('chat:stream', async (e, text) => {
   // 传给 LLM 的 history 只保留 user/assistant(tool 行是展示用,混入会破坏 API 调用配对)
   let history = (ses.messages || []).filter(m => m.role === 'user' || m.role === 'assistant');
   try {
-    const r = await Promise.race([chatAgent.runOnChat(String(text || ''), history, emit), guard]);
+    const forcedTool = forcedToolForChat(text);
+    if (forcedTool) log(`[chat route] 强制调用 ${forcedTool}`);
+    const r = await Promise.race([chatAgent.runOnChat(String(text || ''), history, emit, forcedTool), guard]);
     const reply = r && r.reply ? r.reply
       : (r && r.suggest && r.items && r.items.length) ? ('我记下了:' + r.items.map(i => i.title).join('、'))
       : (r && r._reply) ? r._reply

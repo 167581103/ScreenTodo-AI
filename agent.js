@@ -41,7 +41,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
   // 单次 LLM 调用。allowTools 决定是否带 tools。jsonOut=true 时末轮强制 JSON(判读用);
   // 对话模式 jsonOut=false → 自然语言回复。
   // onToken(可选):传了就走流式(SSE),每个 content 增量回调一次,同时累积 tool_calls 与 usage。
-  async function call(messages, allowTools, jsonOut, onToken, tier = 'large') {
+  async function call(messages, allowTools, jsonOut, onToken, tier = 'large', forcedToolName = '') {
     // Hot-reload: re-read config.json model routing each call, no restart needed
     // tier='large'→heavy model (judge/tools); tier='small'→light model (scene classification/auto-rename etc.)
     let apiBase, apiKey, model;
@@ -72,7 +72,9 @@ module.exports = function createAgent(CONFIG, log, tools) {
     };
     if (allowTools && toolDefs.length) {
       body.tools = toolDefs;
-      body.tool_choice = 'auto';
+      body.tool_choice = forcedToolName
+        ? { type: 'function', function: { name: forcedToolName } }
+        : 'auto';
     } else if (jsonOut) {
       // 判读模式:不强制 response_format(让模型先写思考再出 JSON)。
       // 改为在 safeParse 里从"思考+JSON"混合文本中提取 JSON。
@@ -167,7 +169,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
     });
   }
 
-  async function react(messages, jsonOut, emit) {
+  async function react(messages, jsonOut, emit, forcedToolName = '') {
     let steps = 0;
     const usage = { hit: 0, total: 0, out: 0, calls: 0 };
     const trace = []; // 工具调用轨迹(出生证用):{name, args, result摘要}
@@ -187,11 +189,11 @@ module.exports = function createAgent(CONFIG, log, tools) {
           if (!started) { started = true; emit('TEXT_MESSAGE_START', { messageId: msgId }); }
           emit('TEXT_MESSAGE_CONTENT', { messageId: msgId, delta });
         };
-        const res = await call(messages, !lastStep, jsonOut, onTok);
+        const res = await call(messages, !lastStep, jsonOut, onTok, 'large', steps === 0 ? forcedToolName : '');
         msg = res.msg; u = res.usage;
         if (started) emit('TEXT_MESSAGE_END', { messageId: msgId });
       } else {
-        const res = await call(messages, !lastStep, jsonOut);
+        const res = await call(messages, !lastStep, jsonOut, null, 'large', steps === 0 ? forcedToolName : '');
         msg = res.msg; u = res.usage;
         // 非流式对话:有文本且非工具轮 → 一次性发气泡(模拟 START/CONTENT/END)
         if (emit && msg.content && !(msg.tool_calls && msg.tool_calls.length)) {
@@ -286,11 +288,11 @@ module.exports = function createAgent(CONFIG, log, tools) {
 
   // 入口二:前台对话 → 返回自然语言回复。每次实时载入 prompts/chat.md(热更新)
   // emit(可选):传入则启用 agui 流式事件(主进程转发给渲染层)
-  async function runOnChat(userMsg, history, emit) {
+  async function runOnChat(userMsg, history, emit, forcedToolName = '') {
     const messages = [{ role: 'system', content: loadPrompt('chat', userName) }];
     if (Array.isArray(history)) messages.push(...history);
     messages.push({ role: 'user', content: userMsg });
-    return react(messages, false, emit);
+    return react(messages, false, emit, forcedToolName);
   }
 
   // Light task entry: single small-model call, no tools, returns plain text. For session auto-rename, intent classification etc.

@@ -160,13 +160,30 @@ async function getTimeline() {
 }
 
 // ---------- 搜索 ----------
+function matchesSearch(item, q) {
+  const kw = String(q || '').trim().toLowerCase();
+  if (!kw) return true;
+  const text = [
+    item.title,
+    item.context,
+    item.reason,
+    item.raw,
+    item.screen,
+    ...(item.apps || []),
+    item.scene?.name,
+    item.scene?.why,
+    item.birth?.scene?.name,
+    item.birth?.scene?.why,
+    item.thinking,
+    item.birth?.thinking,
+  ].filter(Boolean).join('\n').toLowerCase();
+  return text.includes(kw);
+}
+
 function search(q) {
-  const items = getRecall();
-  const kw = (q || '').toLowerCase();
-  if (!kw) return items;
-  return items.filter(
-    (i) => (i.title || '').toLowerCase().includes(kw) || (i.context || '').toLowerCase().includes(kw)
-  );
+  // 工作记忆搜索覆盖普通捕获、vault 任务和已拒记录；已拒中的屏幕原文同样是可检索记忆。
+  const items = [...getRecall(), ...getRejected()];
+  return items.filter((item) => matchesSearch(item, q));
 }
 
 // 被拒记录(回收站):进细判但 judge=false 的。可恢复成待办。
@@ -205,4 +222,4 @@ function removeRejected(id) {
   } catch (e) { return false; }
 }
 
-module.exports = { getRecall, getRejected, removeRejected, getMeetings, getRoutines, getTimeline, search };
+module.exports = { getRecall, getRejected, removeRejected, getMeetings, getRoutines, getTimeline, search, matchesSearch };
