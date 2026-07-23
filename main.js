@@ -518,7 +518,7 @@ function openWorkspace() {
   workspaceWin.loadFile('workspace.html');
   workspaceWin.once('ready-to-show', () => workspaceWin.show());
   if (process.env.ORB_DEVTOOLS) workspaceWin.webContents.openDevTools({ mode: 'detach' });
-  // 主进程注入数据数组到 window.__RECALL__,由 workspace.html 渲染(tab/详情/点击都在渲染层)
+  // 主进程注入数据到 window.__RECALL__,触发 recall-update 自定义事件供 React 渲染
   // 只在数据实际变化时才推送 → 避免每 5s 全量重渲染导致列表闪烁
   let lastPayloadHash = null;
   const pushData = (force) => {
@@ -530,7 +530,7 @@ function openWorkspace() {
       if (!force && h === lastPayloadHash) return; // 数据没变 → 不推送,不重渲染
       lastPayloadHash = h;
       workspaceWin.webContents.executeJavaScript(
-        `window.__RECALL__ = ${payload}; if(window.renderRecall) window.renderRecall();`
+        `window.__RECALL__ = ${payload}; window.dispatchEvent(new CustomEvent('recall-update'));`
       );
     } catch (e) { log('注入失败: ' + e.message); }
   };
