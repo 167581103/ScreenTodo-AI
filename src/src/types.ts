@@ -43,6 +43,8 @@ export interface OrbAPI {
   getFilter: () => Promise<{ denyApps: string[]; allowApps: string[] }>;
   setFilter: (f: { denyApps: string[]; allowApps: string[] }) => void;
   getRunningProcesses: () => Promise<string[]>;
+  toolsList: () => Promise<{ categories: { key: string; label: string; tools: { name: string; label?: string; desc?: string }[] }[] }>;
+  listFiles: () => Promise<string[]>;
   getRecall: () => Promise<any[]>;
   getRejected: () => Promise<any[]>;
   restoreRejected: (id: string) => Promise<void>;
