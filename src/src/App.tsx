@@ -318,7 +318,15 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages]);
 
   // ── contenteditable helpers ──
-  const autoGrow = (ta: HTMLDivElement) => { ta.style.height='auto'; ta.style.height=Math.min(120, ta.scrollHeight)+'px'; };
+  const autoGrow = (ta: HTMLDivElement) => {
+    const minHeight = 36;
+    const maxHeight = 104;
+    // 先回到最小高度再测量，避免 flex 容器用上一帧高度反向撑大 scrollHeight。
+    ta.style.height = minHeight + 'px';
+    const contentHeight = ta.scrollHeight;
+    ta.style.height = Math.min(maxHeight, Math.max(minHeight, contentHeight)) + 'px';
+    ta.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
+  };
   const getCaretRange = () => { const s=window.getSelection(); const ta=taRef.current; if(s&&s.rangeCount&&ta&&ta.contains(s.anchorNode)) return s.getRangeAt(0).cloneRange(); return null; };
   const caretBeforeChar = () => { const s=window.getSelection(); if(!s||!s.rangeCount) return null; const r=s.getRangeAt(0), n=r.startContainer; if(n&&n.nodeType===3&&r.startOffset>0) return (n.textContent||'')[r.startOffset-1]; return null; };
   const onInput = () => { const ta=taRef.current; if(!ta) return; if(ta.textContent==='') ta.innerHTML=''; autoGrow(ta); setCanSend(!!(ta.textContent||'').replace(/\u200B/g,'').trim()||ta.querySelector('.mention')!=null); if(caretBeforeChar()==='@'){ pendingRangeRef.current=getCaretRange(); openAdd(); } if(sid) chatDrafts.set(sid, sanitizeUserMessageHtml(ta.innerHTML)); };
@@ -761,6 +769,11 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
   const stCls = item.status==='accepted'?'acc':item.status==='ignored'?'ign':item.kind==='rejected'?'ign':'pend';
   const stTxt = item.status==='accepted'?'已采纳':item.status==='ignored'?'已忽略':item.kind==='rejected'?'被拒':'待处理';
   const apps = (item.apps?.length)?item.apps:(item.tag?[item.tag]:[]);
+  const rejectedThinkingFlow = item.kind==='rejected'
+    ? (item.birth?.dialog?.length
+      ? item.birth.dialog
+      : (item.birth?.thinking ? [{ role:'assistant', content:item.birth.thinking }] : []))
+    : [];
 
   return (<>
     <div className="scrim on" onClick={onClose} />
@@ -777,8 +790,7 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
         {item.kind==='rejected' ? (<>
           {item.raw && <div className="sec"><div className="lbl">屏幕原文</div><div className="rawbox">{item.raw}</div></div>}
           {item.birth?.scene && <div className="sec"><div className="lbl">场景判</div><div className="val mut">{item.birth.scene.name||'—'} · {item.birth.scene.why||''}</div></div>}
-          {item.birth?.thinking && <div className="sec"><div className="lbl">Agent 思考</div><div className="answer" dangerouslySetInnerHTML={{__html:md(item.birth.thinking)}} /></div>}
-          {item.birth?.dialog?.length ? <div className="sec"><div className="lbl">判读对话</div><DialogFlow dialog={item.birth.dialog} /></div> : null}
+          {rejectedThinkingFlow.length ? <div className="sec"><div className="lbl">Agent 思考过程</div><DialogFlow dialog={rejectedThinkingFlow} /></div> : null}
           {item.id && <div className="sec"><button className="restore-btn-detail" onClick={async ()=>{
             if (window.orb?.restoreRejected) await window.orb.restoreRejected(item.id);
             if (window.orb?.getRecall) window.orb.getRecall().then(()=>window.dispatchEvent(new CustomEvent('recall-update')));

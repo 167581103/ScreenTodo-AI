@@ -352,10 +352,10 @@
     box-shadow:0 0 0 3px color-mix(in srgb,var(--ink) 10%,transparent),inset 0 1px 2px color-mix(in srgb,var(--ink) 4%,transparent);
   }
   .chat-text{
-    flex:1;min-height:20px;max-height:120px;overflow-y:auto;scrollbar-width:none;
+    flex:1;height:36px;min-height:36px;max-height:104px;overflow-y:hidden;scrollbar-width:none;
     border:none;background:none;outline:none;
-    padding:8px 4px;font-size:13.5px;font-family:inherit;color:var(--ink);
-    line-height:1.5;align-self:center;white-space:pre-wrap;word-break:break-word;
+    padding:7px 4px;font-size:13.5px;font-family:inherit;color:var(--ink);
+    line-height:1.5;white-space:pre-wrap;word-break:break-word;
   }
   .chat-text::-webkit-scrollbar{width:0}
   .chat-text:empty:before{content:attr(data-ph);color:var(--ink-3);pointer-events:none}
