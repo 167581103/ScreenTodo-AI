@@ -876,7 +876,7 @@ function ThinkingChain({ dialog, thinking }: { dialog?: any[]; thinking?: string
             {n.kind === 'think' && <div className="answer" dangerouslySetInnerHTML={{ __html: md(decodeEntities(n.content || '')) }} />}
             {n.kind === 'trigger' && <div className="ac-trigger">{decodeEntities(n.content || '').slice(0, 1500)}</div>}
             {n.kind === 'result' && <div className="answer" dangerouslySetInnerHTML={{ __html: md(decodeEntities((n.content || '').slice(0, 4000))) }} />}
-            {n.kind === 'tool' && <pre className="ac-args">{JSON.stringify(n.args, null, 2)}</pre>}
+            {n.kind === 'tool' && (n.args && (typeof n.args !== 'object' || Object.keys(n.args).length > 0)) && <pre className="ac-args">{typeof n.args === 'string' ? n.args : JSON.stringify(n.args, null, 2)}</pre>}
           </div>
         </div>
       ))}
