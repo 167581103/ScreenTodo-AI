@@ -7,7 +7,7 @@
     "start": "electron .",
     "dev": "vite",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js test/*.test.mjs",
     "build": "npm run typecheck && vite build",
     "check": "npm run test && npm run build",
     "preview": "vite preview"

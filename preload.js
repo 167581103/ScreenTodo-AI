@@ -43,7 +43,7 @@ contextBridge.exposeInMainWorld('orb', {
   renameSession: (id, name) => ipcRenderer.invoke('chat:rename-session', { id, name }),
   switchSession: (id) => ipcRenderer.invoke('chat:switch-session', id),
   reorderSessions: (ids) => ipcRenderer.invoke('chat:reorder-sessions', ids),
-  chatStream: (text, handlers) => {
+  chatStream: (payload, handlers) => {
     const onEvent = handlers && handlers.onEvent;
     const onDone = handlers && handlers.onDone;
     const onError = handlers && handlers.onError;
@@ -61,7 +61,11 @@ contextBridge.exposeInMainWorld('orb', {
       }
     };
     ipcRenderer.on('chat:event', listener);
-    ipcRenderer.send('chat:stream', text);
+    // 兼容旧调用: string；新调用: { text, html }（html 仅用于用户气泡蓝字展示）
+    const body = typeof payload === 'string'
+      ? { text: payload }
+      : { text: String(payload && payload.text || ''), html: payload && payload.html ? String(payload.html) : '' };
+    ipcRenderer.send('chat:stream', body);
   },
   chatReset: () => ipcRenderer.invoke('chat:reset'),
 });

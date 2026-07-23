@@ -12,7 +12,10 @@ export interface SessionListResponse {
 
 export interface Message {
   role: 'user' | 'assistant' | 'tool';
+  /** Agent / LLM 侧文本（含隐式「引用提示」） */
   content: string;
+  /** 用户气泡展示 HTML（蓝字 mention chips）；缺省时由 content 回退渲染 */
+  html?: string;
   status?: 'running' | 'done';
 }
 
@@ -50,7 +53,7 @@ export interface OrbAPI {
   renameSession: (id: string, name: string) => Promise<{ id: string; name: string } | null>;
   switchSession: (id: string) => Promise<Session>;
   reorderSessions: (ids: string[]) => Promise<{ ok: boolean }>;
-  chatStream: (text: string, handlers: {
+  chatStream: (payload: string | { text: string; html?: string }, handlers: {
     onEvent?: (ev: AguiEvent) => void;
     onDone?: (result: { reply?: string }) => void;
     onError?: (err: string) => void;
