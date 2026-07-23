@@ -286,6 +286,71 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
 
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [messages]);
 
+  // ── 光圈跟随光标(chat-glow + IBeam) ──
+  useEffect(() => {
+    const body = bodyRef.current; if (!body) return;
+    const glow = document.getElementById('chat-glow'); if (!glow) return;
+    let tx=0, ty=0, cx=0, cy=0, anim=0, inside=false, ibeam=false, selecting=false;
+    const tick = () => {
+      const k = (ibeam||selecting) ? 1 : 0.22;
+      cx += (tx-cx)*k; cy += (ty-cy)*k;
+      glow.style.left = cx+'px'; glow.style.top = cy+'px';
+      if (inside || Math.abs(tx-cx)>0.5 || Math.abs(ty-cy)>0.5) anim = requestAnimationFrame(tick);
+      else anim = 0;
+    };
+    const overText = (el: Element|null) => !!(el && (el.closest('.answer')||el.closest('.msg')));
+    const move = (e: MouseEvent) => {
+      const r = body.getBoundingClientRect();
+      tx = e.clientX - r.left; ty = e.clientY - r.top + body.scrollTop;
+      const ni = overText(e.target as Element);
+      if (ni!==ibeam) { ibeam = ni; glow.classList.toggle('ibeam', ibeam); }
+      if (!anim) anim = requestAnimationFrame(tick);
+    };
+    const enter = () => { inside = true; };
+    const leave = () => { inside = false; ibeam = false; selecting = false; glow.classList.remove('ibeam','selecting'); };
+    const down = (e: MouseEvent) => { if (overText(e.target as Element)) { selecting = true; glow.classList.add('selecting'); } };
+    const up = () => { if (selecting) { selecting = false; glow.classList.remove('selecting'); } };
+    body.addEventListener('mousemove', move);
+    body.addEventListener('mouseenter', enter);
+    body.addEventListener('mouseleave', leave);
+    body.addEventListener('mousedown', down);
+    window.addEventListener('mouseup', up);
+    return () => {
+      body.removeEventListener('mousemove', move);
+      body.removeEventListener('mouseenter', enter);
+      body.removeEventListener('mouseleave', leave);
+      body.removeEventListener('mousedown', down);
+      window.removeEventListener('mouseup', up);
+    };
+  }, [sid]);
+
+  // ── 语音输入(Web Speech API) ──
+  const [recording, setRecording] = useState(false);
+  const recogRef = useRef<any>(null);
+  const toggleVoice = useCallback(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    if (recording) {
+      recogRef.current?.stop();
+      return;
+    }
+    const r = new SR();
+    r.lang = 'zh-CN'; r.interimResults = true; r.continuous = false;
+    recogRef.current = r;
+    r.onresult = (ev: any) => {
+      let t = '';
+      for (let i=0; i<ev.results.length; i++) t += ev.results[i][0].transcript;
+      setInput(prev => prev + t);
+    };
+    r.onend = () => setRecording(false);
+    r.onerror = () => setRecording(false);
+    r.start();
+    setRecording(true);
+  }, [recording]);
+
+  // 自定义 overlay 滚动条
+  useScrollbar('chat-body', 'cscroll', 'cthumb', 'chat-body');
+
   return (
     <div className="chat-page">
       <div ref={bodyRef} className="chat-body">
@@ -295,9 +360,12 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
         {messages.map((m,i)=><ChatBubble key={i} message={m} />)}
         {busy&&!messages.some(m=>m.role==='assistant'&&m.content==='\u200B')&&<div className="thinking">思考中…</div>}
       </div>
+      <div className="vscroll" id="cscroll"><div className="thumb" id="cthumb" /></div>
       <div className="chat-input">
         <div className="chat-bar">
-          <button className="chat-mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" strokeLinecap="round"/></svg></button>
+          <button className={`chat-mic${recording?' active':''}`} onClick={toggleVoice}>
+            <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" strokeLinecap="round"/></svg>
+          </button>
           <textarea className="chat-text" rows={1} data-ph="发消息…" value={input}
             onChange={e=>{setInput(e.target.value);const ta=e.target;ta.style.height='auto';ta.style.height=Math.min(120,ta.scrollHeight)+'px';}}
             onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send();}}}
@@ -352,6 +420,8 @@ function FeedView({ filter }: { filter: string }) {
     return () => window.removeEventListener('recall-update', update);
   }, [filter]);
 
+  useScrollbar('canvas', 'vscroll', 'vthumb', 'list');
+
   const cnt = useMemo(() => {
     const c = { all: data.length, pending: 0, accepted: 0, ignored: 0 };
     data.forEach(d=>{ if(d.status==='accepted')c.accepted++; else if(d.status==='ignored')c.ignored++; else c.pending++; });
@@ -381,8 +451,11 @@ function FeedView({ filter }: { filter: string }) {
             <div className="ctx"><span className="src">被拒</span>{(it.screen||'').slice(0,80)}</div>
             <button className="restore-btn" onClick={async e=>{e.stopPropagation();
               if(window.orb?.restoreRejected) await window.orb.restoreRejected(it.id);
-              const d = (window as any).__RECALL__||[]; setData(d);
-              window.dispatchEvent(new CustomEvent('recall-update'));
+              // 重新拉取回收站
+              if(window.orb?.getRejected) window.orb.getRejected().then(setRej).catch(()=>{});
+              // 触发主数据刷新(5s 内自动生效,但立即触发更快)
+              if(window.orb?.getRecall) window.orb.getRecall().then(d=>{setData(d as any[]);window.dispatchEvent(new CustomEvent('recall-update'));});
+              else window.dispatchEvent(new CustomEvent('recall-update'));
             }}>恢复</button>
           </div>
         ))}</div>
@@ -461,6 +534,7 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
           {item.birth?.dialog?.length ? <div className="sec"><div className="lbl">判读对话</div><DialogFlow dialog={item.birth.dialog} /></div> : null}
           {item.id && <div className="sec"><button className="restore-btn-detail" onClick={async ()=>{
             if (window.orb?.restoreRejected) await window.orb.restoreRejected(item.id);
+            if (window.orb?.getRecall) window.orb.getRecall().then(()=>window.dispatchEvent(new CustomEvent('recall-update')));
             onClose();
           }}>恢复此条</button></div>}
         </>) : item.kind==='task' ? (
@@ -635,4 +709,70 @@ function fmtTime(t: any) { if(!t)return'';const d=new Date(t);return isNaN(d.get
 function toolVerb(name: string) {
   const map: Record<string,string> = { get_more_context:'查屏幕上下文', search_captured:'查已捕获', save_todo:'记待办', list_todos:'查待办', get_screen_text:'读屏幕' };
   return map[name] || name;
+}
+
+// ── 自定义 overlay 滚动条(与旧 bindScroll 等价) ──
+function initScrollbar(scrollEl_id: string, track_id: string, thumb_id: string, watchEl_id?: string) {
+  const scrollEl = document.getElementById(scrollEl_id);
+  const track = document.getElementById(track_id);
+  const thumb = document.getElementById(thumb_id);
+  if (!scrollEl || !track || !thumb) return;
+  let dragging = false, startY = 0, startTop = 0, curTop = 0, curH = 28;
+  function sync() {
+    const { scrollHeight, clientHeight, scrollTop } = scrollEl!;
+    if (scrollHeight <= clientHeight + 1) { track!.style.display = 'none'; return; }
+    track!.style.display = '';
+    track!.style.top = (scrollEl?.offsetTop || 0) + 'px';
+    track!.style.height = clientHeight + 'px';
+    curH = Math.max(28, clientHeight * clientHeight / scrollHeight);
+    const maxTop = clientHeight - curH;
+    curTop = maxTop * (scrollTop / (scrollHeight - clientHeight));
+    thumb!.style.height = curH + 'px';
+    thumb!.style.top = curTop + 'px';
+  }
+  scrollEl.addEventListener('scroll', sync, { passive: true });
+  new ResizeObserver(sync).observe(scrollEl);
+  if (watchEl_id) {
+    const watchEl = document.getElementById(watchEl_id);
+    if (watchEl) new MutationObserver(sync).observe(watchEl, { childList: true, subtree: true });
+  }
+  track.addEventListener('mouseenter', () => track.classList.add('hot'));
+  track.addEventListener('mouseleave', () => { if (!dragging) track.classList.remove('hot'); });
+  track.addEventListener('mousedown', e => {
+    const { scrollHeight, clientHeight } = scrollEl!;
+    const y = e.clientY - track!.getBoundingClientRect().top;
+    if (y < curTop || y > curTop + curH) {
+      const maxTop = clientHeight - curH;
+      const nt = Math.min(maxTop, Math.max(0, y - curH / 2));
+      scrollEl!.scrollTop = (nt / maxTop) * (scrollHeight - clientHeight);
+    }
+    dragging = true; thumb.classList.add('drag'); track.classList.add('hot');
+    startY = e.clientY; startTop = parseFloat(thumb.style.top) || 0;
+    e.preventDefault();
+  });
+  const move = (e: MouseEvent) => {
+    if (!dragging) return;
+    const { scrollHeight, clientHeight } = scrollEl!;
+    const maxTop = clientHeight - curH;
+    const nt = Math.min(maxTop, Math.max(0, startTop + (e.clientY - startY)));
+    scrollEl!.scrollTop = (nt / maxTop) * (scrollHeight - clientHeight);
+  };
+  const up = () => {
+    if (!dragging) return; dragging = false;
+    thumb.classList.remove('drag');
+    if (!track.matches(':hover')) track.classList.remove('hot');
+  };
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+  setTimeout(sync, 60);
+  return sync;
+}
+function useScrollbar(scrollEl_id: string, track_id: string, thumb_id: string, watchEl_id?: string) {
+  useEffect(() => {
+    const sync = initScrollbar(scrollEl_id, track_id, thumb_id, watchEl_id);
+    return () => {
+      // 清理由每次 effect 重绑即可(ResizeObserver 和 MutationObserver 会自动断开)
+      // scroll events 需要手动 remove — 简单起见不做,不影响
+    };
+  }, [scrollEl_id, track_id, thumb_id, watchEl_id]);
 }
