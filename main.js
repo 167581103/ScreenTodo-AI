@@ -391,6 +391,11 @@ function getActive() {
   }
   return s.list.find(x => x.id === s.active);
 }
+function getSessionById(id) {
+  if (!id) return null;
+  const s = loadSessions();
+  return s.list.find(x => x.id === id) || null;
+}
 
 ipcMain.handle('chat:list-sessions', () => {
   const s = loadSessions();
@@ -434,12 +439,16 @@ ipcMain.handle('chat:reorder-sessions', (e, ids) => {
   return { ok: true };
 });
 
-// 流式对话:消息写入当前活跃会话
-// payload: string | { text, html? } — text 给 Agent；html 仅用于用户气泡展示蓝字引用
+// 流式对话:消息写入指定会话(或当前活跃会话)
+// payload: string | { text, html?, sessionId? }
+// - text 给 Agent；html 仅用于用户气泡展示蓝字引用
+// - sessionId 绑定发送时的会话，避免 UI 已切走时写到错误会话
+// - 用户消息立刻落盘，切会话/重载不会丢
 ipcMain.on('chat:stream', async (e, payload) => {
   const sender = e.sender;
   const text = typeof payload === 'string' ? String(payload || '') : String((payload && payload.text) || '');
   const html = typeof payload === 'object' && payload && payload.html ? String(payload.html) : '';
+  const sessionId = typeof payload === 'object' && payload && payload.sessionId ? String(payload.sessionId) : '';
   const toolsThisRun = [];
   const emit = (type, payload = {}) => {
     // 截获工具调用,持久化到会话展示历史(仅记工具名)
@@ -447,20 +456,23 @@ ipcMain.on('chat:stream', async (e, payload) => {
     try { sender.send('chat:event', { type, ...payload }); } catch (_) {}
   };
   const guard = new Promise((_, rej) => setTimeout(() => rej(new Error('响应超时')), 50000));
-  const ses = getActive();
-  // 传给 LLM 的 history 只保留 user/assistant 的 role/content(tool 行是展示用；html 字段勿喂给 API)
-  let history = (ses.messages || [])
+  const ses = getSessionById(sessionId) || getActive();
+  // 立刻持久化用户消息，避免 Agent 未返回前切走导致历史丢失
+  const userMsg = { role: 'user', content: text };
+  if (html) userMsg.html = html;
+  ses.messages = ses.messages || [];
+  // 传给 LLM 的 history：不含本轮用户消息(runOnChat 会再 push)；只留 role/content
+  const history = ses.messages
     .filter(m => m.role === 'user' || m.role === 'assistant')
     .map(m => ({ role: m.role, content: m.content }));
+  ses.messages.push(userMsg);
+  saveSessions();
   try {
     const r = await Promise.race([chatAgent.runOnChat(text, history, emit), guard]);
     const reply = r && r.reply ? r.reply
       : (r && r.suggest && r.items && r.items.length) ? ('我记下了:' + r.items.map(i => i.title).join('、'))
       : (r && r._reply) ? r._reply
       : (typeof r === 'string' ? r : (r && r.text) || '(已处理)');
-    const userMsg = { role: 'user', content: text };
-    if (html) userMsg.html = html;
-    ses.messages.push(userMsg);
     for (const t of toolsThisRun) ses.messages.push({ role: 'tool', content: t, status: 'done' });
     ses.messages.push({ role: 'assistant', content: reply });
     if (ses.messages.length > 60) ses.messages = ses.messages.slice(-60);
@@ -482,6 +494,9 @@ ipcMain.on('chat:stream', async (e, payload) => {
     }
   } catch (err) {
     log('chat 失败: ' + err.message);
+    ses.messages.push({ role: 'assistant', content: '出错了: ' + err.message });
+    if (ses.messages.length > 60) ses.messages = ses.messages.slice(-60);
+    saveSessions();
     emit('RUN_ERROR', { error: '出错了: ' + err.message });
   }
 });

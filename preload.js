@@ -61,10 +61,14 @@ contextBridge.exposeInMainWorld('orb', {
       }
     };
     ipcRenderer.on('chat:event', listener);
-    // 兼容旧调用: string；新调用: { text, html }（html 仅用于用户气泡蓝字展示）
+    // 兼容旧调用: string；新调用: { text, html?, sessionId? }
     const body = typeof payload === 'string'
       ? { text: payload }
-      : { text: String(payload && payload.text || ''), html: payload && payload.html ? String(payload.html) : '' };
+      : {
+          text: String(payload && payload.text || ''),
+          html: payload && payload.html ? String(payload.html) : '',
+          sessionId: payload && payload.sessionId ? String(payload.sessionId) : '',
+        };
     ipcRenderer.send('chat:stream', body);
   },
   chatReset: () => ipcRenderer.invoke('chat:reset'),
