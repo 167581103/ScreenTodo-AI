@@ -786,11 +786,7 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
   const stCls = item.status==='accepted'?'acc':item.status==='ignored'?'ign':item.kind==='rejected'?'ign':'pend';
   const stTxt = item.status==='accepted'?'已采纳':item.status==='ignored'?'已忽略':item.kind==='rejected'?'被拒':'待处理';
   const apps = (item.apps?.length)?item.apps:(item.tag?[item.tag]:[]);
-  const rejectedThinkingFlow = item.kind==='rejected'
-    ? (item.birth?.dialog?.length
-      ? item.birth.dialog
-      : (item.birth?.thinking ? [{ role:'assistant', content:item.birth.thinking }] : []))
-    : [];
+  const hasAgentThinking = item.kind==='rejected' && !!(item.birth?.dialog?.length || item.birth?.thinking);
 
   return (<>
     <div className="scrim on" onClick={onClose} />
@@ -807,7 +803,7 @@ function DetailDrawer({ item, onClose }: { item: any; onClose: () => void }) {
         {item.kind==='rejected' ? (<>
           {item.raw && <div className="sec"><div className="lbl">屏幕原文</div><div className="rawbox">{item.raw}</div></div>}
           {item.birth?.scene && <div className="sec"><div className="lbl">场景判</div><div className="val mut">{item.birth.scene.name||'—'} · {item.birth.scene.why||''}</div></div>}
-          {rejectedThinkingFlow.length ? <div className="sec"><div className="lbl">Agent 思考过程</div><DialogFlow dialog={rejectedThinkingFlow} /></div> : null}
+          {hasAgentThinking ? <div className="sec"><div className="lbl">Agent 思考过程</div><ThinkingChain dialog={item.birth?.dialog} thinking={item.birth?.thinking} /></div> : null}
           {item.id && <div className="sec"><button className="restore-btn-detail" onClick={async ()=>{
             if (window.orb?.restoreRejected) await window.orb.restoreRejected(item.id);
             if (window.orb?.getRecall) window.orb.getRecall().then(()=>window.dispatchEvent(new CustomEvent('recall-update')));
@@ -841,6 +837,51 @@ function DialogFlow({ dialog }: { dialog: any[] }) {
     }
     return null;
   })}</div>;
+}
+
+// ── Agent 思考过程:思考链路(纵向连接,而不是对话气泡) ──
+function ThinkingChain({ dialog, thinking }: { dialog?: any[]; thinking?: string }) {
+  type ChainNode = { kind:'trigger'|'think'|'tool'|'result'; label:string; content?:string; toolName?:string; args?:any };
+  const nodes: ChainNode[] = [];
+  const src: any[] = (dialog && dialog.length) ? dialog : (thinking ? [{ role:'assistant', content: thinking }] : []);
+  for (const e of src) {
+    if (e.role === 'user') {
+      const t = String(e.content || '').trim();
+      if (t) nodes.push({ kind:'trigger', label:'触发', content: t });
+    } else if (e.role === 'assistant') {
+      const c = String(e.content || '').trim();
+      if (c) nodes.push({ kind:'think', label:'思考', content: c });
+      for (const tc of (e.tool_calls || [])) {
+        nodes.push({ kind:'tool', label:'工具', toolName: tc.name || '工具调用', args: tc.args || {} });
+      }
+    } else if (e.role === 'tool') {
+      const r = String(e.content || '').trim();
+      if (r) nodes.push({ kind:'result', label:'结果', content: r });
+    }
+  }
+  if (!nodes.length) return null;
+  return (
+    <div className="agent-chain">
+      {nodes.map((n, i) => (
+        <div key={i} className={`ac-node ac-${n.kind}`}>
+          <div className="ac-rail">
+            <span className="ac-dot" />
+            {i < nodes.length - 1 && <span className="ac-line" />}
+          </div>
+          <div className="ac-card">
+            <div className="ac-head">
+              <span className="ac-tag">{n.label}</span>
+              {n.toolName && <span className="ac-tool">{toolVerb(n.toolName)}</span>}
+            </div>
+            {n.kind === 'think' && <div className="answer" dangerouslySetInnerHTML={{ __html: md(decodeEntities(n.content || '')) }} />}
+            {n.kind === 'trigger' && <div className="ac-trigger">{decodeEntities(n.content || '').slice(0, 1500)}</div>}
+            {n.kind === 'result' && <div className="answer" dangerouslySetInnerHTML={{ __html: md(decodeEntities((n.content || '').slice(0, 4000))) }} />}
+            {n.kind === 'tool' && (n.args && (typeof n.args !== 'object' || Object.keys(n.args).length > 0)) && <pre className="ac-args">{typeof n.args === 'string' ? n.args : JSON.stringify(n.args, null, 2)}</pre>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ── 设置视图 ──
@@ -981,6 +1022,16 @@ function ProcInput({ which, onAdd }: { which: 'deny'|'allow'; onAdd: (v: string)
 
 // ── 工具函数 ──
 function escHtml(s: string) { return (s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c as keyof typeof c]!); }
+
+function decodeEntities(s: string): string {
+  const map: Record<string,string> = { '&quot;':'"', '&amp;':'&', '&lt;':'<', '&gt;':'>', '&#39;':"'", '&apos;':"'", '&nbsp;':' ' };
+  return (s||'').replace(/&(?:#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m) => {
+    if (map[m]) return map[m];
+    const num = /^#(x?)([0-9a-fA-F]+)$/.exec(m.slice(1));
+    if (num) { const cp = num[1] ? parseInt(num[2],16) : parseInt(num[2],10); try { return String.fromCodePoint(cp); } catch { return m; } }
+    return m;
+  });
+}
 function fmtTime(t: any) { if(!t)return'';const d=new Date(t);return isNaN(d.getTime())?'':d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 function toolVerb(name: string) {
   const map: Record<string,string> = { get_more_context:'查屏幕上下文', search_captured:'查已捕获', save_todo:'记待办', list_todos:'查待办', get_screen_text:'读屏幕' };

@@ -24,8 +24,8 @@ export function md(s: string): string {
     const hm = ln.match(/^(#{1,3})\s+(.*)$/);
     if (hm) { out.push('<h' + hm[1].length + '>' + inlineMd(hm[2]) + '</h' + hm[1].length + '>'); i++; continue; }
     if (/^\s*>\s?/.test(ln)) { const q: string[] = []; while (i < lines.length && /^\s*>\s?/.test(lines[i])) { q.push(inlineMd(lines[i].replace(/^\s*>\s?/, ''))); i++; } out.push('<blockquote>' + q.join('<br>') + '</blockquote>'); continue; }
-    if (/^\s*\d+\.\s+/.test(ln)) { const items: string[] = []; while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { items.push('<li>' + inlineMd(lines[i].replace(/^\s*\d+\.\s+/, '')) + '</li>'); i++; } out.push('<ol>' + items.join('') + '</ol>'); continue; }
-    if (/^\s*[-*]\s+/.test(ln)) { const items: string[] = []; while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { items.push('<li>' + inlineMd(lines[i].replace(/^\s*[-*]\s+/, '')) + '</li>'); i++; } out.push('<ul>' + items.join('') + '</ul>'); continue; }
+    if (/^\s*\d+\.\s+/.test(ln)) { const items: string[] = []; while (i < lines.length) { if (/^\s*\d+\.\s+/.test(lines[i])) { items.push('<li>' + inlineMd(lines[i].replace(/^\s*\d+\.\s+/, '')) + '</li>'); i++; } else if (/^\s*$/.test(lines[i])) { i++; } else break; } out.push('<ol>' + items.join('') + '</ol>'); continue; }
+    if (/^\s*[-*]\s+/.test(ln)) { const items: string[] = []; while (i < lines.length) { if (/^\s*[-*]\s+/.test(lines[i])) { items.push('<li>' + inlineMd(lines[i].replace(/^\s*[-*]\s+/, '')) + '</li>'); i++; } else if (/^\s*$/.test(lines[i])) { i++; } else break; } out.push('<ul>' + items.join('') + '</ul>'); continue; }
     if (/^\s*$/.test(ln)) { i++; continue; }
     const para = [ln]; i++;
     while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,3}\s|>\s?|\s*[-*]\s|\s*\d+\.\s|\s*---+\s*$)/.test(lines[i]) && !/^\0CB\d+\0$/.test(lines[i])) { para.push(lines[i]); i++; }
