@@ -14,7 +14,13 @@ if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
   echo "[$(date)] 找不到 Node.js，请设置 ORB_NODE_BIN" >> supervisor.log
   exit 1
 fi
-SP_BIN="${ORB_SP_BIN:-screenpipe}"
+SP_BIN="${ORB_SP_BIN:-$(command -v screenpipe 2>/dev/null)}"
+# 兜底:屏幕捕获二进制不在 PATH 时,用项目内 node_modules 路径
+if [ -z "$SP_BIN" ] || [ ! -x "$SP_BIN" ]; then
+  for _cand in "$PROJ_DIR/node_modules/@screenpipe/cli-darwin-arm64/bin/screenpipe" "$PROJ_DIR/node_modules/screenpipe/bin/screenpipe.js" "$PROJ_DIR/node_modules/.bin/screenpipe"; do
+    if [ -f "$_cand" ]; then SP_BIN="$_cand"; break; fi
+  done
+fi
 SP_DATA="${ORB_SP_DATA:-$PROJ_DIR/.screenpipe}"
 # 从 config.json 读取 Screenpipe API key,注入环境变量,保证自愈重启 screenpipe 后 daemon 仍鉴权通过
 SP_KEY=$("$NODE_BIN" -e "try{console.log((require('./config.json').screenpipe||{}).apiKey||'')}catch(e){}" 2>/dev/null)

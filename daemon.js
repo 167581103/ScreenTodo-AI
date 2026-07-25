@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const { sinkFind } = require('./sink.js'); // 写入层去重:查 todo 是否已存在于配置的存储
-const { sanitizeFrame } = require('./sanitize.js'); // 输入预处理:剥离导航态/UI chrome 噪声
+const { sanitizeFrame } = require('./sanitize.js'); // 输入预处理:去通用噪声行(孤立数字/角标)
 const { segmentFrame } = require('./segment.js'); // 几何窗口分割:按坐标把糊锅多窗口切开
 
 const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
@@ -103,22 +103,57 @@ const titleSeen = new Set(); // 已建议过的标题(Agent 输出,可能漂移)
 const factSeen = new Set();
 function normFact(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '').slice(0, 60); }
 
+// —— IDE/终端噪声预过滤:在场景分类前拦截明显噪声,减少 LLM 调用 ——
+// Screenpipe OCR 有时把 IDE 窗口误标为"企业微信",导致菜单栏/终端提示符进入场景判读管道。
+// 保守策略:中文内容(≥5个汉字)一律放行,只拦截纯英文/符号的 IDE 界面元素。
+function isRegionNoise(text) {
+  const stripped = (text || '').trim();
+  if (!stripped) return true;
+  const chineseChars = (stripped.match(/[\u4e00-\u9fa5]/g) || []).length;
+  const totalChars = stripped.replace(/\s/g, '').length;
+  // 有实质中文内容 → 放行
+  if (chineseChars >= 5) return false;
+  // 极短文本信号不足以判断 → 放行(宁可多花一次 scene 调用也不错杀)
+  if (totalChars < 30) return false;
+  // IDE 菜单栏: "File Edit ... Window" 等经典模式
+  if (/^(File|Edit|View|Go|Window|Help|Selection)(\b|\s)/m.test(stripped) && totalChars < 200) return true;
+  // 终端提示符: > 开头且含路径分隔符
+  if (/^[>\$]/.test(stripped) && /[\/\\]/.test(stripped)) return true;
+  // 编辑器状态栏: Ln/Col/Spaces 等
+  if (/(?:\bLn\s+\d+|\bCol\s+\d+|\bSpaces:\s*\d+|Markdown\b.*\bUTF-8)/i.test(stripped) && totalChars < 120) return true;
+  // 编辑器大纲/时间线/TODO 面板(纯结构,无内容)
+  if (/^(>\s*OUTLINE|>\s*TIMELINE|>\s*TODO)\b/m.test(stripped)) return true;
+  // Diff 视图 / Checkpoint 提示
+  if (/\b(?:Checkpoint|View\s+Diff?|Discard)\b/i.test(stripped) && totalChars < 100) return true;
+  return false;
+}
+
 // —— 模糊去重:宁滥勿缺模式下,模型可能把同一需求换种说法重复建议,需按"近似"拦截 ——
+// lcsLen 使用最长公共子序列(允许跳过字符),而非子串(连续)。中文短标题中
+// 一行之差就断开子串,子序列能可靠识别同一事件的不同表述。
 function normTitle(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, ''); }
 function lcsLen(a, b) {
+  // Longest common subsequence (allows gaps), not substring.
+  // Substring (resets on mismatch) fails badly on short Chinese titles
+  // where a single diff char breaks the run. Subsequence correctly
+  // matches "处理TAPD分发缺陷" against "处理TAPD缺陷批量授权异常"
+  // (LCS = "处理TAPD缺陷" = 8 chars) even though the chars diverge
+  // after the shared prefix.
   if (!a || !b) return 0;
   const n = a.length, m = b.length;
-  let best = 0; const dp = new Array(m + 1).fill(0);
+  let prev = new Array(m + 1).fill(0);
   for (let i = 1; i <= n; i++) {
-    let prev = 0;
+    const cur = new Array(m + 1).fill(0);
     for (let j = 1; j <= m; j++) {
-      const tmp = dp[j];
-      dp[j] = a[i - 1] === b[j - 1] ? prev + 1 : 0;
-      if (dp[j] > best) best = dp[j];
-      prev = tmp;
+      if (a[i - 1] === b[j - 1]) {
+        cur[j] = prev[j - 1] + 1;
+      } else {
+        cur[j] = Math.max(prev[j], cur[j - 1]);
+      }
     }
+    prev = cur;
   }
-  return best;
+  return prev[m];
 }
 function isDupTitle(title) {
   const n = normTitle(title);
@@ -127,7 +162,7 @@ function isDupTitle(title) {
     const m = normTitle(s);
     if (n === m) return true;
     if (n.includes(m) || m.includes(n)) return true; // 一方包含另一方
-    if (Math.min(n.length, m.length) >= 8 && lcsLen(n, m) >= 8) return true; // 长公共子串=同一需求不同表述
+    if (Math.min(n.length, m.length) >= 6 && lcsLen(n, m) >= 6) return true; // LCS>=6 同一需求不同表述
   }
   return false;
 }
@@ -159,7 +194,7 @@ async function fetchRaw(limit, sinceTs) {
       const rawTxt = (c.text || '').trim();
       if (allowApps.length && !allowApps.includes(app)) continue; // 白名单模式
       if (denyApps.includes(app)) continue;                        // 黑名单
-      // 行级剥离 chrome / 通用噪声,保留同屏其它窗口内容
+      // 行级去通用噪声,保留同屏其它窗口内容
       const txt = sanitizeFrame(rawTxt);
       if (!txt) continue;
       out.push({ fid: c.frame_id || 0, app, txt, ts: c.timestamp || null });
@@ -405,33 +440,46 @@ async function handleSuggest(j, meta) {
   }
 }
 
-// 捕获层判读:场景闸门 + 按来源 app 分块细判。
-// 分块是结构性修复——多 app 区域原本被拍扁成一段无边界文本喂给 judge,
-// ── 上游 judgeScreen(按 app 分块串行) 替换为 judgeGroups(按几何区域并行) ──
-// 每个几何区域独立进场景闸门 + 独立判读。并行 scene、并行 judge。
+// 捕获层判读:预过滤 → 场景闸门 → 合并细判。
+// 核心优化:所有 pass 区域合并到一次 judge() 调用(一个 LLM 会话),
+// 相比每区域独立会话,省 N-1 份 system prompt 开销(~600 token/份)。
 async function judgeGroups(inc, label) {
   const grps = inc.groups;
   if (!grps.length) return;
+  // 阶段0: 预过滤 IDE/终端噪声,减少 scene 调用
+  const filtered = [];
+  for (const g of grps) {
+    const text = g.lines.join('\n');
+    if (isRegionNoise(text)) {
+      log(`[${label}:prefilter] 跳过 IDE/终端噪声 (${(text.slice(0, 40) || '').replace(/\n/g, ' ')})`);
+      continue;
+    }
+    filtered.push({ ...g, text });
+  }
+  if (!filtered.length) return;
   // 阶段1: 并行场景分类(全部组一起判,最慢的那组决定耗时)
-  const sres = await Promise.all(grps.map(g =>
-    agent.classifyScene(sceneText(g.lines)).then(sc => ({ ...g, sc, text: g.lines.join('\n') }))
+  const sres = await Promise.all(filtered.map(g =>
+    agent.classifyScene(sceneText(g.lines)).then(sc => ({ ...g, sc, text: g.text }))
   ));
-  // 阶段2: 对有派活的组并行细判
-  const jobs = [];
+  // 阶段2: 合并所有区域到一次 judge 调用(一个 LLM 会话),大幅减少 system prompt 重复开销
+  const deliverGroups = [];
   for (const g of sres) {
     if (!g.sc.deliver) {
       log(`[${label}:scene] ${g.sc.scene} · 不派活,跳过 (${g.sc.why})`);
       continue;
     }
     log(`[${label}:scene] ${g.sc.scene} · 可能派活 → 进细判`);
-    jobs.push(judge(g.text).then(j => {
-      log(`[${label}:judge] suggest=` + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
-      const appMatch = g.key.match(/^\[([^·\]]+)/);
-      const groupApps = appMatch ? [appMatch[1]] : inc.apps;
-      return handleSuggest(j, { apps: groupApps, raw: g.text.slice(0, 2000), scene: g.sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
-    }));
+    deliverGroups.push(g);
   }
-  if (jobs.length) await Promise.all(jobs);
+  if (deliverGroups.length) {
+    // 合并所有区域文本,用分隔线标注区域边界
+    const merged = deliverGroups.map(g => g.text).join('\n---\n');
+    const j = await judge(merged);
+    log(`[${label}:judge] merged ${deliverGroups.length} regions → suggest=` + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : '') : ''));
+    const appMatch = deliverGroups[0]?.key.match(/^\[([^·\]]+)/);
+    const groupApps = appMatch ? [appMatch[1]] : inc.apps;
+    await handleSuggest(j, { apps: groupApps, raw: merged.slice(0, 2000), scene: deliverGroups[0]?.sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
+  }
 }
 
 // 保留上游 judgeScreen 作参考(按 app_name 分块,需辅助功能权限才能拿到 app 名)

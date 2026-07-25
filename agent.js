@@ -54,10 +54,13 @@ module.exports = function createAgent(CONFIG, log, tools) {
       } else {
         provName = ms || 'deepseek';
       }
-      const pr = cfg[provName] || {};
+      const pr = cfg[provName] || cfg.deepseek || {};
       apiBase = pr.apiBase || cfg.deepseek.apiBase;
       apiKey  = pr.apiKey  || cfg.deepseek.apiKey;
-      model   = pr.model   || cfg.deepseek.model;
+      // 按 tier 选模型:large→modelLarge, small→modelSmall, 兜底 model
+      if (tier === 'small' && pr.modelSmall) model = pr.modelSmall;
+      else if (tier === 'large' && pr.modelLarge) model = pr.modelLarge;
+      else model = pr.model || cfg.deepseek.model;
     } catch (_) {
       // fallback:读失败时用内存 CONFIG(不断 API 调用)
       apiBase = CONFIG.deepseek.apiBase;
