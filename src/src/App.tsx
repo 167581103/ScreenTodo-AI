@@ -131,6 +131,9 @@ function SessionSection({ sessions, activeSid, onUpdate, onSwitch, view, onSetVi
   // 切到非对话视图时清除会话高亮
   const isChat = view === 'chat';
 
+  // 全局互斥:一次只有一个会话的菜单打开
+  const [activeMenuId, setActiveMenuId] = useState<string|null>(null);
+
   return (
     <div className="chat-sec">
       <div className="chat-sec-label">对话</div>
@@ -139,6 +142,9 @@ function SessionSection({ sessions, activeSid, onUpdate, onSwitch, view, onSetVi
           <SessionItem
             key={s.id} session={s}
             active={isChat && s.id === activeSid}
+            menuOpen={activeMenuId === s.id}
+            onMenuToggle={() => setActiveMenuId(activeMenuId === s.id ? null : s.id)}
+            onMenuClose={() => setActiveMenuId(null)}
             onClick={() => { switchTo(s.id); }}
             onRename={name => rename(s.id, name)}
             onDelete={() => del(s.id)}
@@ -152,15 +158,39 @@ function SessionSection({ sessions, activeSid, onUpdate, onSwitch, view, onSetVi
 }
 
 // ── 会话项 ──
-function SessionItem({ session, active, onClick, onRename, onDelete, onReorder, sessions }: {
+function SessionItem({ session, active, menuOpen, onMenuToggle, onMenuClose, onClick, onRename, onDelete, onReorder, sessions }: {
   session: SessionMeta; active: boolean;
+  menuOpen: boolean; onMenuToggle: () => void; onMenuClose: () => void;
   onClick: () => void; onRename: (n: string) => void; onDelete: () => void;
   onReorder: (ids: string[]) => void; sessions: SessionMeta[];
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(session.name);
+  const [menuPos, setMenuPos] = useState<{top:number,right:number}>({top:0,right:0});
   const dragRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  // 外部点击关闭菜单 (与 add-pop 一致的模式)
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (menuRef.current?.contains(t) || btnRef.current?.contains(t)) return;
+      onMenuClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [menuOpen, onMenuClose]);
+
+  const handleMenuToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!menuOpen && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setMenuPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+    }
+    onMenuToggle();
+  };
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || menuOpen || renaming) return;
@@ -221,12 +251,12 @@ function SessionItem({ session, active, onClick, onRename, onDelete, onReorder, 
       ) : (
         <span className="ses-name">{session.name}</span>
       )}
-      <button className="ses-menu-btn" onClick={e => { e.stopPropagation(); setMenuOpen(!menuOpen); }}>···</button>
+      <button ref={btnRef} className="ses-menu-btn" onClick={handleMenuToggle}>···</button>
     </div>
     {menuOpen && (
-      <div className="ses-menu" style={{ position:'fixed', zIndex:50 }}>
-        <button onClick={() => { setMenuOpen(false); setRenaming(true); }}>重命名</button>
-        <button className="danger" onClick={() => { setMenuOpen(false); onDelete(); }}>删除</button>
+      <div ref={menuRef} className="ses-menu" style={{ position:'fixed', zIndex:50, top:menuPos.top, right:menuPos.right }}>
+        <button onClick={() => { onMenuClose(); setRenaming(true); }}>重命名</button>
+        <button className="danger" onClick={() => { onMenuClose(); onDelete(); }}>删除</button>
       </div>
     )}
   </>);
