@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo-dark.svg" width="80" alt="Orbit logo" />
+  <img src="assets/logo-dark.svg" width="80" alt="ScreenTodo-AI logo" />
 </p>
 
-<h3 align="center">Orbit</h3>
+<h3 align="center">ScreenTodo-AI</h3>
 <p align="center">
   A local-first ReAct AI agent that watches your screen,<br/>
   figures out what needs your attention,<br/>
@@ -21,7 +21,7 @@
 ## What It Does
 
 You get hundreds of messages every day across Slack, WeChat, and email.
-Important action items get buried. Orbit sits in your macOS menu bar and:
+Important action items get buried. ScreenTodo-AI sits in your macOS menu bar and:
 
 1. **Continuously observes** your screen via local OCR (Screenpipe)
 2. **Reasons autonomously** about what needs follow-up using a ReAct agent
@@ -67,7 +67,7 @@ cp config.example.json config.json
 # 4. Launch the full stack (daemon + Electron UI)
 bash supervisor.sh &
 
-# 5. Orbit icon appears in your macOS menu bar.
+# 5. ScreenTodo-AI icon appears in your macOS menu bar.
 #    Cmd+Shift+W → open the workspace dashboard.
 ```
 
