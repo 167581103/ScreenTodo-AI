@@ -96,8 +96,13 @@ const chatTools = {
 
 // 文件系统工具:Agent 可读写 orb-config.json 配置的目录
 const { createTools } = require('agent-filesystem-tools');
-const orbCfg = readOrbConfig();
-if (orbCfg.dirs.length) Object.assign(chatTools, createTools(orbCfg.dirs, orbCfg.dirs[0]));
+(function initChatFsTools() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'orb-config.json'), 'utf8'));
+    const dirs = (cfg.dirs || []).map(d => { try { return fs.realpathSync(d); } catch (e) { return d; } });
+    if (dirs.length) Object.assign(chatTools, createTools(dirs, dirs[0]));
+  } catch (e) {}
+})();
 
 const chatAgent = require('./agent.js')(CONFIG, log, chatTools);
 

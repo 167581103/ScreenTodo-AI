@@ -96,7 +96,14 @@ const agentTools = {
 let orbConfig = { dirs: [path.join(os.homedir(), 'Todo', 'todo')], version: 1 };
 const ORB_CONFIG_PATH = path.join(__dirname, 'orb-config.json');
 function loadOrbConfig() {
-  try { const c = JSON.parse(fs.readFileSync(ORB_CONFIG_PATH, 'utf8')); orbConfig = { ...orbConfig, ...c }; }
+  try {
+    const c = JSON.parse(fs.readFileSync(ORB_CONFIG_PATH, 'utf8'));
+    orbConfig = { ...orbConfig, ...c };
+    // 解析符号链接:validatePath 会解析真实路径,allowed dirs 也必须同步
+    orbConfig.dirs = (orbConfig.dirs || []).map(d => {
+      try { return fs.realpathSync(d); } catch (e) { return d; }
+    });
+  }
   catch (e) { /* keep defaults */ }
 }
 loadOrbConfig();
