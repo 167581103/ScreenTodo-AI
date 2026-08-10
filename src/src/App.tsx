@@ -534,9 +534,9 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
     W.chatStream({ text: sendText, html: msgHTML, sessionId: sid }, {
       onEvent(ev: AguiEvent) {
         switch (ev.type) {
-          case 'TEXT_MESSAGE_START': pending = ''; break;
-          case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; break;
-          case 'TEXT_MESSAGE_END': setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content:pending }]); pending = ''; break;
+          case 'TEXT_MESSAGE_START': pending = ''; setMessages(prev => [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')), { role:'assistant', content: '' }]); break;
+          case 'TEXT_MESSAGE_CONTENT': pending += ev.delta || ''; setMessages(prev => { const last=prev[prev.length-1]; if(!last||last.role!=='assistant') return prev; const next=[...prev]; next[next.length-1]={...last,content:pending}; return next; }); break;
+          case 'TEXT_MESSAGE_END': pending = ''; break;
           case 'TOOL_CALL_START': setMessages(prev=>[...prev,{role:'tool',content:ev.toolName||'?',status:'running'}]); break;
           case 'TOOL_CALL_END': setMessages(prev=>{
             let idx = -1;
@@ -551,7 +551,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
           case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
         }
       },
-      onDone(){ setBusy(false); },
+      onDone(result){ setBusy(false); if(result&&result.reply){setMessages(prev=>prev.some(m=>m.role==='assistant'&&m.content===result.reply)?prev:prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')).concat({role:'assistant',content:result.reply}))} },
       onError(err){ setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+err}]); setBusy(false); },
     });
   }, [busy, sid, closeAdd]);
@@ -588,7 +588,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
           </button>
           <div ref={taRef} className="chat-text" contentEditable role="textbox" data-ph="发消息…"
             onInput={onInput}
-            onKeyDown={e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); send(); } }}
+            onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } }}
             suppressContentEditableWarning />
           <button className="chat-send" onClick={send} disabled={busy||!canSend} aria-label="发送消息">
             <span className="send-plane"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg></span>
