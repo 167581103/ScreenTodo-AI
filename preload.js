@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('orb', {
   getFilter: () => ipcRenderer.invoke('settings:getFilter'),
   setFilter: (f) => ipcRenderer.send('settings:setFilter', f),
   getRunningProcesses: () => ipcRenderer.invoke('settings:running-processes'),
+  // orb-config:读写允许目录等本地配置
+  getConfig: () => ipcRenderer.invoke('settings:get-config'),
+  setConfig: (cfg) => ipcRenderer.send('settings:set-config', cfg),
   // 工具可见性:查看 Agent 可访问工具 + 配置来源开关
   toolsList: () => ipcRenderer.invoke('tools:list'),
   toolsSetSources: (s) => ipcRenderer.send('tools:setSources', s),

@@ -325,6 +325,22 @@ ipcMain.on('settings:setFilter', (e, f) => {
   } catch (err) { log('写过滤名单失败: ' + err.message); }
 });
 
+// ── orb-config.json 读写 ──
+const ORB_CONFIG_PATH = path.join(__dirname, 'orb-config.json');
+const DEFAULT_ORB_CONFIG = { dirs: [], version: 1 };
+
+function readOrbConfig() {
+  try { return { ...DEFAULT_ORB_CONFIG, ...JSON.parse(fs.readFileSync(ORB_CONFIG_PATH, 'utf8')) }; }
+  catch (e) { return { ...DEFAULT_ORB_CONFIG }; }
+}
+
+ipcMain.handle('settings:get-config', () => readOrbConfig());
+ipcMain.on('settings:set-config', (e, cfg) => {
+  try {
+    fs.writeFileSync(ORB_CONFIG_PATH, JSON.stringify({ ...readOrbConfig(), ...cfg }, null, 2) + '\n');
+  } catch (err) { log('写 orb-config.json 失败: ' + err.message); }
+});
+
 // ---------- 工具可见性:查看 Agent 可访问工具 + 配置来源开关 ----------
 // 读取实时 config.tools.sources,回填每类 enabled。读文件而非缓存 CONFIG,保证开关即时反映。
 ipcMain.handle('tools:list', () => {

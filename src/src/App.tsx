@@ -917,7 +917,7 @@ function ThinkingChain({ dialog, thinking }: { dialog?: any[]; thinking?: string
 // ── 设置视图 ──
 function SettingsView() {
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem('orb-theme')||'auto'; } catch { return 'auto'; } });
-  const [filterState, setFilterState] = useState<{denyApps:string[],allowApps:string[]}>({denyApps:[],allowApps:[]});
+  const [dirs, setDirs] = useState<string[]>([]);
 
   const applyTheme = useCallback((t: string) => {
     setTheme(t);
@@ -930,34 +930,29 @@ function SettingsView() {
 
   useEffect(() => {
     const W = window.orb;
-    if (W?.getFilter) W.getFilter().then(f => setFilterState({denyApps:f.denyApps||[],allowApps:f.allowApps||[]})).catch(()=>{});
+    if (W?.getConfig) W.getConfig().then(c => setDirs(c.dirs||[])).catch(()=>{});
   }, []);
 
-  const saveFilter = useCallback((fs: typeof filterState) => {
-    setFilterState(fs);
+  const saveDirs = useCallback((newDirs: string[]) => {
+    setDirs(newDirs);
     const W = window.orb;
-    if (W?.setFilter) W.setFilter({denyApps:fs.denyApps,allowApps:fs.allowApps});
+    if (W?.setConfig) W.setConfig({ dirs: newDirs });
   }, []);
 
-  const addTag = useCallback((which:'deny'|'allow', val: string) => {
-    val = val.trim(); if (!val) return;
-    const fs = { ...filterState };
-    const arr = fs[which==='deny'?'denyApps':'allowApps'];
-    if (!arr.includes(val)) { arr.push(val); saveFilter({...fs, [which==='deny'?'denyApps':'allowApps']:[...arr]}); }
-  }, [filterState, saveFilter]);
+  const addDir = useCallback((val: string) => {
+    val = val.trim(); if (!val || dirs.includes(val)) return;
+    saveDirs([...dirs, val]);
+  }, [dirs, saveDirs]);
 
-  const removeTag = useCallback((which:'deny'|'allow', idx: number) => {
-    const fs = { ...filterState };
-    const arr = fs[which==='deny'?'denyApps':'allowApps'];
-    arr.splice(idx, 1);
-    saveFilter({...fs, [which==='deny'?'denyApps':'allowApps']:[...arr]});
-  }, [filterState, saveFilter]);
+  const removeDir = useCallback((idx: number) => {
+    const next = [...dirs]; next.splice(idx, 1); saveDirs(next);
+  }, [dirs, saveDirs]);
 
   return (
     <div className="set-page">
       <div className="set-head"><div className="set-inner">
         <div className="set-title">设置</div>
-        <div className="set-sub">外观、捕获范围等偏好。改动即时生效。</div>
+        <div className="set-sub">外观与文件访问权限。改动即时生效。</div>
       </div></div>
       <div className="set-body"><div className="set-inner">
         {/* 外观 */}
@@ -969,88 +964,33 @@ function SettingsView() {
             ))}
           </div>
         </div>
-        {/* 黑名单 */}
+        {/* 允许访问的目录 */}
         <div className="set-group">
-          <div className="set-lbl">进程黑名单</div>
-          <div className="set-desc">这些应用里的内容不会被捕获（如终端、密码管理器）。回车添加。</div>
-          <div className="taglist">{filterState.denyApps.map((a,i)=>(
-            <span key={i} className="tag">{a}<button onClick={()=>removeTag('deny',i)}>×</button></span>
+          <div className="set-lbl">允许访问的目录</div>
+          <div className="set-desc">Agent 只能读写这些目录下的文件。回车添加。</div>
+          <div className="taglist">{dirs.map((d,i)=>(
+            <span key={i} className="tag">{d}<button onClick={()=>removeDir(i)}>×</button></span>
           ))}</div>
-          <ProcInput which="deny" onAdd={v=>addTag('deny',v)} />
+          <DirInput onAdd={addDir} />
         </div>
-        {/* 白名单 */}
-        <div className="set-group">
-          <div className="set-lbl">进程白名单</div>
-          <div className="set-desc">留空 = 监控全部应用；填了则<b>只</b>监控名单内的应用。</div>
-          <div className="taglist">{filterState.allowApps.map((a,i)=>(
-            <span key={i} className="tag">{a}<button onClick={()=>removeTag('allow',i)}>×</button></span>
-          ))}</div>
-          <ProcInput which="allow" onAdd={v=>addTag('allow',v)} />
-        </div>
-        <div className="set-note">应用名需与系统里的进程名一致（如「企业微信」「Google Chrome」）。改动即时生效。</div>
       </div></div>
     </div>
   );
 }
 
-function ProcInput({ which, onAdd }: { which: 'deny'|'allow'; onAdd: (v: string) => void }) {
+function DirInput({ onAdd }: { onAdd: (v: string) => void }) {
   const [val, setVal] = useState('');
-  const [procs, setProcs] = useState<string[]>([]);
-  const [open, setOpen] = useState(false);
-  const [idx, setIdx] = useState(-1);
-  const [loaded, setLoaded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
-
-  const ensure = useCallback(async () => {
-    if (loaded) return;
-    const W = window.orb;
-    if (W?.getRunningProcesses) { try { const p = await W.getRunningProcesses(); setProcs(p); } catch {} }
-    else setProcs([]);
-    setLoaded(true);
-  }, [loaded]);
-
-  const filtered = val.trim() ? procs.filter(p => p.toLowerCase().includes(val.trim().toLowerCase())) : procs;
-
-  const select = useCallback((name: string) => {
-    onAdd(name); setVal(''); setOpen(false); setIdx(-1);
-  }, [onAdd]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key==='ArrowDown'||e.key==='ArrowUp') {
-      e.preventDefault();
-      if (!filtered.length) return;
-      const ni = (idx + (e.key==='ArrowDown'?1:-1) + filtered.length) % filtered.length;
-      setIdx(ni);
-    } else if (e.key==='Enter') {
-      e.preventDefault();
-      if (idx>=0 && filtered[idx]) select(filtered[idx]);
-      else { onAdd(val); setVal(''); setOpen(false); }
-    } else if (e.key==='Escape') {
-      setOpen(false); setIdx(-1);
-    }
-  };
-
+  const add = () => { const v = val.trim(); if(v) { onAdd(v); setVal(''); } };
   return (
-    <div className="proc-wrap">
-      <input className="tagin proc-in" value={val}
-        placeholder={which==='deny'?'输入应用名后回车…':'输入或从系统进程选择…'}
-        onChange={e=>{setVal(e.target.value);setIdx(-1);}}
-        onFocus={()=>{ensure();setIdx(-1);setOpen(true);}}
-        onBlur={()=>setTimeout(()=>setOpen(false),120)}
-        onKeyDown={handleKeyDown}
-        ref={inputRef} autoComplete="off" />
-      <div ref={popRef} className={`proc-pop${open?' open':''}`}>
-        {!loaded ? <div className="empty">加载中…</div>
-        :!procs.length ? <div className="empty err">获取进程列表失败</div>
-        :!filtered.length ? <div className="empty">无匹配项,继续输入则当作自定义应用名添加</div>
-        :filtered.map((p,i)=>(<button key={p} className={`item${i===idx?' sel':''}`} onMouseDown={e=>{e.preventDefault();select(p);}}><span className="nm">{p}</span></button>))}
-      </div>
+    <div className="tag-input">
+      <input ref={inputRef} value={val} onChange={e=>setVal(e.target.value)}
+        onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
+        placeholder="输入目录路径后回车…" />
     </div>
   );
 }
 
-// ── 工具函数 ──
 function escHtml(s: string) { return (s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c as keyof typeof c]!); }
 
 function decodeEntities(s: string): string {
