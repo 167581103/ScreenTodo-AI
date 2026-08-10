@@ -103,57 +103,22 @@ const titleSeen = new Set(); // 已建议过的标题(Agent 输出,可能漂移)
 const factSeen = new Set();
 function normFact(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '').slice(0, 60); }
 
-// —— IDE/终端噪声预过滤:在场景分类前拦截明显噪声,减少 LLM 调用 ——
-// Screenpipe OCR 有时把 IDE 窗口误标为"企业微信",导致菜单栏/终端提示符进入场景判读管道。
-// 保守策略:中文内容(≥5个汉字)一律放行,只拦截纯英文/符号的 IDE 界面元素。
-function isRegionNoise(text) {
-  const stripped = (text || '').trim();
-  if (!stripped) return true;
-  const chineseChars = (stripped.match(/[\u4e00-\u9fa5]/g) || []).length;
-  const totalChars = stripped.replace(/\s/g, '').length;
-  // 有实质中文内容 → 放行
-  if (chineseChars >= 5) return false;
-  // 极短文本信号不足以判断 → 放行(宁可多花一次 scene 调用也不错杀)
-  if (totalChars < 30) return false;
-  // IDE 菜单栏: "File Edit ... Window" 等经典模式
-  if (/^(File|Edit|View|Go|Window|Help|Selection)(\b|\s)/m.test(stripped) && totalChars < 200) return true;
-  // 终端提示符: > 开头且含路径分隔符
-  if (/^[>\$]/.test(stripped) && /[\/\\]/.test(stripped)) return true;
-  // 编辑器状态栏: Ln/Col/Spaces 等
-  if (/(?:\bLn\s+\d+|\bCol\s+\d+|\bSpaces:\s*\d+|Markdown\b.*\bUTF-8)/i.test(stripped) && totalChars < 120) return true;
-  // 编辑器大纲/时间线/TODO 面板(纯结构,无内容)
-  if (/^(>\s*OUTLINE|>\s*TIMELINE|>\s*TODO)\b/m.test(stripped)) return true;
-  // Diff 视图 / Checkpoint 提示
-  if (/\b(?:Checkpoint|View\s+Diff?|Discard)\b/i.test(stripped) && totalChars < 100) return true;
-  return false;
-}
-
 // —— 模糊去重:宁滥勿缺模式下,模型可能把同一需求换种说法重复建议,需按"近似"拦截 ——
-// lcsLen 使用最长公共子序列(允许跳过字符),而非子串(连续)。中文短标题中
-// 一行之差就断开子串,子序列能可靠识别同一事件的不同表述。
 function normTitle(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, ''); }
 function lcsLen(a, b) {
-  // Longest common subsequence (allows gaps), not substring.
-  // Substring (resets on mismatch) fails badly on short Chinese titles
-  // where a single diff char breaks the run. Subsequence correctly
-  // matches "处理TAPD分发缺陷" against "处理TAPD缺陷批量授权异常"
-  // (LCS = "处理TAPD缺陷" = 8 chars) even though the chars diverge
-  // after the shared prefix.
   if (!a || !b) return 0;
   const n = a.length, m = b.length;
-  let prev = new Array(m + 1).fill(0);
+  let best = 0; const dp = new Array(m + 1).fill(0);
   for (let i = 1; i <= n; i++) {
-    const cur = new Array(m + 1).fill(0);
+    let prev = 0;
     for (let j = 1; j <= m; j++) {
-      if (a[i - 1] === b[j - 1]) {
-        cur[j] = prev[j - 1] + 1;
-      } else {
-        cur[j] = Math.max(prev[j], cur[j - 1]);
-      }
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev + 1 : 0;
+      if (dp[j] > best) best = dp[j];
+      prev = tmp;
     }
-    prev = cur;
   }
-  return prev[m];
+  return best;
 }
 function isDupTitle(title) {
   const n = normTitle(title);
@@ -162,7 +127,7 @@ function isDupTitle(title) {
     const m = normTitle(s);
     if (n === m) return true;
     if (n.includes(m) || m.includes(n)) return true; // 一方包含另一方
-    if (Math.min(n.length, m.length) >= 6 && lcsLen(n, m) >= 6) return true; // LCS>=6 同一需求不同表述
+    if (Math.min(n.length, m.length) >= 8 && lcsLen(n, m) >= 8) return true; // 长公共子串=同一需求不同表述
   }
   return false;
 }
@@ -194,7 +159,7 @@ async function fetchRaw(limit, sinceTs) {
       const rawTxt = (c.text || '').trim();
       if (allowApps.length && !allowApps.includes(app)) continue; // 白名单模式
       if (denyApps.includes(app)) continue;                        // 黑名单
-      // 行级去通用噪声,保留同屏其它窗口内容
+      // 行级剥离 chrome / 通用噪声,保留同屏其它窗口内容
       const txt = sanitizeFrame(rawTxt);
       if (!txt) continue;
       out.push({ fid: c.frame_id || 0, app, txt, ts: c.timestamp || null });
@@ -252,8 +217,8 @@ async function seedBaseline() {
     if (inc.lines.length) {
       const screenText = inc.lines.join('\n');
       lastWinHash = cheapHash(screenText);
-      log('[baseline] 窗口 ' + inc.lines.length + ' 行 ' + screenText.length + '字 ' + inc.groups.length + ' 组');
-      await judgeGroups(inc, 'baseline');
+      log('[baseline] 窗口 ' + inc.lines.length + ' 行 ' + screenText.length + '字');
+      await judgeScreen(inc, 'baseline');
     } else {
       log('[baseline] 无可见屏幕内容,跳过');
     }
@@ -308,7 +273,7 @@ async function fetchContext() {
         const fp = normRegion(clean);
         if (fp.length < 8 || seenRegion.has(fp)) continue; // 跨帧重复区域(如侧边栏)只留一次
         seenRegion.add(fp);
-        // 每区域标注简短指纹(fq=前6字),让 judgeGroups 能按空间区域独立分组判读
+        // 每区域标注简短指纹(fq=前6字)用于跨帧去重
         const fq = fp.slice(0, 6);
         lines.push(`[${f.app}·${fq}] ${clean.slice(-PERFRAME)}`);
       }
@@ -327,22 +292,7 @@ async function fetchContext() {
   let tot = lines.reduce((s, l) => s + l.length, 0);
   let truncated = false;
   while (lines.length > 1 && tot > MAXC) { tot -= lines.shift().length; truncated = true; }
-  // 按空间相邻的几何区域分组(跨帧去重后每条 line 对应一个独立区域)。
-  // 分组键 = 行前缀 [app] 或 [app·区域],同 app 同区域归一组,各自独立判读。
-  const groups = [];
-  let curGrp = null;
-  for (const l of lines) {
-    const pf = l.match(/^(\[[^\]]+\])\s/);
-    const gk = pf ? pf[1] : '__';
-    if (!curGrp || curGrp.key !== gk) {
-      if (curGrp && curGrp.lines.length) groups.push(curGrp);
-      curGrp = { key: gk, lines: [l] };
-    } else {
-      curGrp.lines.push(l);
-    }
-  }
-  if (curGrp && curGrp.lines.length) groups.push(curGrp);
-  return { lines, apps: [...apps], groups, truncated };
+  return { lines, apps: [...apps], truncated };
 }
 
 async function handleSuggest(j, meta) {
@@ -440,66 +390,15 @@ async function handleSuggest(j, meta) {
   }
 }
 
-// 捕获层判读:预过滤 → 场景闸门 → 合并细判。
-// 核心优化:所有 pass 区域合并到一次 judge() 调用(一个 LLM 会话),
-// 相比每区域独立会话,省 N-1 份 system prompt 开销(~600 token/份)。
-async function judgeGroups(inc, label) {
-  const grps = inc.groups;
-  if (!grps.length) return;
-  // 阶段0: 预过滤 IDE/终端噪声,减少 scene 调用
-  const filtered = [];
-  for (const g of grps) {
-    const text = g.lines.join('\n');
-    if (isRegionNoise(text)) {
-      log(`[${label}:prefilter] 跳过 IDE/终端噪声 (${(text.slice(0, 40) || '').replace(/\n/g, ' ')})`);
-      continue;
-    }
-    filtered.push({ ...g, text });
-  }
-  if (!filtered.length) return;
-  // 阶段1: 并行场景分类(全部组一起判,最慢的那组决定耗时)
-  const sres = await Promise.all(filtered.map(g =>
-    agent.classifyScene(sceneText(g.lines)).then(sc => ({ ...g, sc, text: g.text }))
-  ));
-  // 阶段2: 合并所有区域到一次 judge 调用(一个 LLM 会话),大幅减少 system prompt 重复开销
-  const deliverGroups = [];
-  for (const g of sres) {
-    if (!g.sc.deliver) {
-      log(`[${label}:scene] ${g.sc.scene} · 不派活,跳过 (${g.sc.why})`);
-      continue;
-    }
-    log(`[${label}:scene] ${g.sc.scene} · 可能派活 → 进细判`);
-    deliverGroups.push(g);
-  }
-  if (deliverGroups.length) {
-    // 合并所有区域文本,用分隔线标注区域边界
-    const merged = deliverGroups.map(g => g.text).join('\n---\n');
-    const j = await judge(merged);
-    log(`[${label}:judge] merged ${deliverGroups.length} regions → suggest=` + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : '') : ''));
-    const appMatch = deliverGroups[0]?.key.match(/^\[([^·\]]+)/);
-    const groupApps = appMatch ? [appMatch[1]] : inc.apps;
-    await handleSuggest(j, { apps: groupApps, raw: merged.slice(0, 2000), scene: deliverGroups[0]?.sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
-  }
-}
-
-// 保留上游 judgeScreen 作参考(按 app_name 分块,需辅助功能权限才能拿到 app 名)
-async function judgeScreen(inc) {
+// 捕获层判读:所有区域上下文合并,单次场景闸门 + 单次 Agent 判读。
+async function judgeScreen(inc, label) {
+  const screenText = inc.lines.join('\n');
   const sc = await agent.classifyScene(sceneText(inc.lines));
-  if (!sc.deliver) { log(`[scene] ${sc.scene} · 不派活,跳过 (${sc.why})`); return; }
-  log(`[scene] ${sc.scene} · 可能派活 → 进细判`);
-  const byApp = new Map();
-  for (const l of inc.lines) {
-    const m = l.match(/^\[([^\]·]+)/);
-    const app = (m && m[1]) || '未知';
-    if (!byApp.has(app)) byApp.set(app, []);
-    byApp.get(app).push(l);
-  }
-  for (const [app, group] of byApp) {
-    const appText = group.join('\n');
-    const j = await judge(appText);
-    log('[judge:' + app + '] suggest=' + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
-    await handleSuggest(j, { apps: [app], raw: appText.slice(0, 2000) });
-  }
+  if (!sc.deliver) { log(`[${label}:scene] ${sc.scene} · 不派活,跳过 (${sc.why})`); return; }
+  log(`[${label}:scene] ${sc.scene} · 可能派活 → 进细判`);
+  const j = await judge(screenText);
+  log(`[${label}:judge] suggest=` + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
+  await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000), scene: sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
 }
 
 async function tick() {
@@ -513,8 +412,8 @@ async function tick() {
     if (h === lastWinHash) { return; }
     lastWinHash = h;
     stats.rounds = (stats.rounds || 0) + 1;
-    log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 行 ${screenText.length}字 ${inc.groups.length} 组` + (inc.truncated ? ' [截断]' : '') + (inc.apps.includes('企业微信') ? ' [群聊]' : ''));
-    await judgeGroups(inc, 'tick');
+    log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 行 ${screenText.length}字` + (inc.truncated ? ' [截断]' : '') + (inc.apps.includes('企业微信') ? ' [群聊]' : ''));
+    await judgeScreen(inc, 'tick');
   } catch (e) {
     lastTs = savedLastTs;
     log('tick 错误: ' + e.message);
