@@ -153,6 +153,19 @@ module.exports = function createAgent(CONFIG, log, tools) {
     }
   }
 
+  // SSE 流式包装:仅 chat 路径使用,逐 token 发射 TEXT_MESSAGE 事件。
+  async function callStream(messages, allowTools, jsonOut, messageId, emit) {
+    let started = false;
+    const onTok = (delta) => {
+      if (!delta) return;
+      if (!started) { started = true; emit('TEXT_MESSAGE_START', { messageId }); }
+      emit('TEXT_MESSAGE_CONTENT', { messageId, delta });
+    };
+    const res = await call(messages, allowTools, jsonOut, onTok);
+    if (started) emit('TEXT_MESSAGE_END', { messageId });
+    return res;
+  }
+
   // 有界 ReAct 循环:messages 已含 system + 首条 user。
   // jsonOut=true(判读)→ 返回解析后的 todo JSON;jsonOut=false(对话)→ 返回 {reply, ...}。
   // emit(可选):agui 事件回调,用于流式交互(仅对话且传入时启用)。
@@ -173,37 +186,18 @@ module.exports = function createAgent(CONFIG, log, tools) {
   async function react(messages, jsonOut, emit) {
     let steps = 0;
     const usage = { hit: 0, total: 0, out: 0, calls: 0 };
-    const trace = []; // 工具调用轨迹(出生证用):{name, args, result摘要}
-    // 注:曾用 SSE 流式,但 DeepSeek 流式 + tool_calls 组合下 content 解析不稳(工具轮后返回空)。
-    // 改为非流式(已验证稳定),拿到完整 content 后一次性作气泡 emit。可靠优先于逐字流。
-    const streamable = false;
+    const trace = []; // 工具调用轨迹(出生证用)
     if (emit) emit('RUN_STARTED', { runId: 'run_' + Date.now(), threadId: 'chat' });
     while (steps < MAX_STEPS) {
       const lastStep = steps === MAX_STEPS - 1; // 末轮不再给工具,逼出结论
       let msg, u;
-      if (streamable) {
-        // 延迟发 START:只在真收到第一个文本 token 才开气泡,避免"纯工具调用轮"冒空气泡
-        const msgId = 'm_' + Date.now() + '_' + steps;
-        let started = false;
-        const onTok = (delta) => {
-          if (!delta) return;
-          if (!started) { started = true; emit('TEXT_MESSAGE_START', { messageId: msgId }); }
-          emit('TEXT_MESSAGE_CONTENT', { messageId: msgId, delta });
-        };
-        const res = await call(messages, !lastStep, jsonOut, onTok);
-        msg = res.msg; u = res.usage;
-        if (started) emit('TEXT_MESSAGE_END', { messageId: msgId });
-      } else {
-        const res = await call(messages, !lastStep, jsonOut);
-        msg = res.msg; u = res.usage;
-        // 非流式对话:有文本且非工具轮 → 一次性发气泡(模拟 START/CONTENT/END)
-        if (emit && msg.content && !(msg.tool_calls && msg.tool_calls.length)) {
-          const msgId = 'm_' + Date.now() + '_' + steps;
-          emit('TEXT_MESSAGE_START', { messageId: msgId });
-          emit('TEXT_MESSAGE_CONTENT', { messageId: msgId, delta: msg.content });
-          emit('TEXT_MESSAGE_END', { messageId: msgId });
-        }
-      }
+      // 延迟发 START:只在真收到第一个文本 token 才开气泡,避免"纯工具调用轮"冒空气泡
+      const messageId = 'm_' + Date.now() + '_' + steps;
+      let started = false;
+      const res = emit
+        ? await callStream(messages, !lastStep, jsonOut, messageId, emit)
+        : await call(messages, !lastStep, jsonOut);
+      msg = res.msg; u = res.usage;
       usage.hit += u.hit; usage.total += u.total; usage.out += u.out; usage.calls++;
       steps++;
 
