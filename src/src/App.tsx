@@ -984,9 +984,9 @@ function DirInput({ onAdd }: { onAdd: (v: string) => void }) {
   const add = () => { const v = val.trim(); if(v) { onAdd(v); setVal(''); } };
   return (
     <div className="tag-input">
-      <input ref={inputRef} value={val} onChange={e=>setVal(e.target.value)}
+      <input ref={inputRef} className="tagin" value={val} onChange={e=>setVal(e.target.value)}
         onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
-        placeholder="输入目录路径后回车…" />
+        placeholder="添加目录路径…" />
     </div>
   );
 }
