@@ -123,7 +123,10 @@ const fsTools = createTools(orbConfig.dirs, orbConfig.dirs[0]);
 Object.assign(agentTools, fsTools);
 
 const agent = createAgent(CONFIG, log, agentTools);
-const judge = (screenText) => agent.runOnScreen(screenText);
+// 持续判读会话:历史屏幕上下文就是这一条时间线,场景闸门放行的窗口作为插入点注入。
+// "已弹过窗"由会话记忆承担(机械去重保留作兜底)。重启后会话从零开始,
+// 但台账(titleSeen 预填自 suggestions/vault)保证重启不重复弹。
+const session = agent.createJudgeSession();
 
 // 增量游标:用帧时间戳(ISO)而非 frame_id。Screenpipe 搜索结果的 frame_id 不完全保序(同毫秒多窗口帧会乱序),
 // 用 frame_id 当游标会被乱序推高、导致真实新帧被永久丢弃(表现为"无新增屏幕,跳过")。改用 start_time 时间戳游标根治。
@@ -448,10 +451,22 @@ async function judgeScreen(inc, label) {
   const screenText = inc.lines.join('\n');
   const sc = await agent.classifyScene(sceneText(inc.lines));
   if (!sc.deliver) { log(`[${label}:scene] ${sc.scene} · 不派活,跳过 (${sc.why})`); return; }
-  log(`[${label}:scene] ${sc.scene} · 可能派活 → 进细判`);
-  const j = await judge(screenText);
+  log(`[${label}:scene] ${sc.scene} · 可能派活 → 进细判 (会话 ${Math.round(session.chars() / 1000)}k字)`);
+  const j = await session.judge(screenText);
   log(`[${label}:judge] suggest=` + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
   await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000), scene: sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
+  // 上下文预算:超阈值则压缩旧段(摘要 + 已通知台账 + 最近若干插入点),会话继续演进
+  const MAXS = (CONFIG.monitor.sessionMaxChars || 60000);
+  if (session.chars() > MAXS) {
+    try {
+      session.setLedger([...titleSeen]);
+      const summary = await agent.runLight(
+        '你是屏幕监控会话的上下文压缩器。把给定历史压缩成不超过400字的摘要:保留①已弹窗通知过的事项标题;②正在进行、未完结的线索(谁在等用户推进什么);③关键人名/事项名。丢弃界面元素、导航、闲聊等噪声。只输出摘要正文。',
+        session.dump(4, 12000));
+      session.compact(summary, CONFIG.monitor.compactRecent || 2);
+      log(`[session] 上下文压缩完成 → ${Math.round(session.chars() / 1000)}k字`);
+    } catch (e) { log('[session] 压缩失败(下轮重试): ' + e.message); }
+  }
 }
 
 async function tick() {
@@ -560,8 +575,9 @@ function backupSugg() {
 (async () => {
   acquireLock();
   ensureSuggFile();
-  log('=== orb-daemon 启动 (滑窗+场景闸门+机械去重接入vault) ===');
+  log('=== orb-daemon 启动 (持续会话时间线+场景闸门+机械去重兜底) ===');
   prefillTitleSeen();
+  session.setLedger([...titleSeen]); // 台账:重启后不重复弹已通知过的事
   await seedBaseline();
   tick();
   setInterval(tick, interval);

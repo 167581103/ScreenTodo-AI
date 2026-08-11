@@ -246,8 +246,9 @@ module.exports = function createAgent(CONFIG, log, tools) {
         // 模型有时会在自然语言思考中带示例对象或不完整 JSON；统一走容错解析，
         // 避免单个区域的格式问题中断整轮并行判读。
         const j = safeParse(jsonMatch ? jsonMatch[0] : raw);
-        // 把思考文本塞回 messages 里 assistant 的 content(供 buildDialog 回放)
-        if (thinking) messages[messages.length-1] = { ...messages[messages.length-1], content: thinking };
+        // 结论轮也入列:持续会话(judge session)依赖完整时间线做记忆,
+        // 覆写最后一条消息会悄悄腐蚀历史(一次性调用无感,会话模式致命)。
+        if (thinking) messages.push({ role: 'assistant', content: thinking });
         j._steps = steps; j._usage = usage; j._trace = trace; j._dialog = buildDialog(messages);
         j._thinking = thinking; // 思考文本(出生证用)
         return j;
@@ -315,5 +316,56 @@ module.exports = function createAgent(CONFIG, log, tools) {
     return (msg.content || '').trim();
   }
 
-  return { runOnScreen, runOnChat, classifyScene, runLight, get PROMPT() { return loadPrompt('judge', promptCtx); } };
+  // ── 持续判读会话(时间线模式) ──
+  // 数据流:历史屏幕上下文就是这一条会话。场景闸门放行的每个屏幕窗口是一个插入点(trigger),
+  // Agent 的工具调用(show_popup)和判读结论都留在会话里 —— "这件事已弹过窗"成为会话记忆,
+  // 而不是只能靠外部机械去重模拟。上下文逼近预算时由调用方 compact():旧段压成摘要 + 重挂台账。
+  function createJudgeSession() {
+    const msgs = [{ role: 'system', content: loadPrompt('judge', promptCtx) }];
+    let ledger = [];
+    return {
+      chars() { let n = 0; for (const m of msgs) n += (m.content || '').length; return n; },
+      setLedger(titles) { ledger = Array.isArray(titles) ? titles : []; },
+      // 供压缩器读取的旧段文本(跳过 system 与最近 keepTail 条)
+      dump(keepTail, maxChars) {
+        const end = Math.max(1, msgs.length - (keepTail || 4));
+        let s = '';
+        for (let i = 1; i < end; i++) {
+          const m = msgs[i];
+          const tag = m.role === 'user' ? '[屏幕]' : m.role === 'tool' ? '[工具结果]' : '[判读]';
+          s += tag + ' ' + (m.content || '').replace(/\s+/g, ' ').slice(0, 300) + '\n';
+          if (s.length > (maxChars || 12000)) break;
+        }
+        return s;
+      },
+      async judge(screenText) {
+        // prompt 按 mtime 热更新;内容不变时 system 稳定,前缀缓存友好
+        msgs[0] = { role: 'system', content: loadPrompt('judge', promptCtx) };
+        msgs.push({ role: 'user', content: '当前屏幕内容:\n' + screenText });
+        let r;
+        try { r = await react(msgs, true); }
+        catch (e) { msgs.pop(); throw e; } // 失败回滚插入点,下个 tick 重判同一屏幕
+        return r;
+      },
+      // 压缩:system(刷新) + 摘要 + 台账(已通知清单) + 最近 keepRecent 个插入点起的完整片段
+      compact(summary, keepRecent) {
+        const kr = keepRecent || 2;
+        let cut = msgs.length, seen = 0;
+        for (let i = msgs.length - 1; i >= 1; i--) {
+          if (msgs[i].role === 'user') { seen++; if (seen >= kr) { cut = i; break; } }
+        }
+        const kept = cut < msgs.length ? msgs.slice(cut) : [];
+        const ledgerTxt = ledger.length
+          ? '\n\n【已通知清单 — 以下事项已弹过窗,勿重复通知】\n' + ledger.slice(-80).map(t => '- ' + t).join('\n')
+          : '';
+        msgs.length = 0;
+        msgs.push({ role: 'system', content: loadPrompt('judge', promptCtx) });
+        msgs.push({ role: 'user', content: '【上下文压缩】以下是之前屏幕监控历史的摘要,供你延续判读:\n' + summary + ledgerTxt });
+        msgs.push({ role: 'assistant', content: '了解。我已掌握此前的监控历史与已通知清单,在此基础上继续判读。' });
+        for (const m of kept) msgs.push(m);
+      },
+    };
+  }
+
+  return { runOnScreen, runOnChat, classifyScene, runLight, createJudgeSession, get PROMPT() { return loadPrompt('judge', promptCtx); } };
 };
