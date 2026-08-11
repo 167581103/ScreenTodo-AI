@@ -136,7 +136,13 @@ const titleSeen = new Set(); // 已建议过的标题(Agent 输出,可能漂移)
 // 已判读过的"屏幕事实片段"指纹(基于触发原文 it.context,稳定客观,不受 Agent 输出措辞漂移影响)。
 // 源头去重:同一段屏幕文本被相邻 tick 反复判读时,即使 Agent 吐出不同标题,也认定为同一事实、不重复产出。
 const factSeen = new Set();
-function normFact(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '').slice(0, 60); }
+function normFact(s) {
+  // 提取文本中的标识性序列（人名、接口名、状态码、订单号等连续字母数字串），
+  // 排序去重后拼接做指纹。比截断前 60 字鲁棒：不受 OCR 标点/格式/顺序差异影响，
+  // 核心标识（如 createcontentpromotionorder-trpc_21）无论出现在文本哪个位置都能稳定提取。
+  const ids = (s || '').toLowerCase().match(/[a-z][a-z0-9_]{2,}/g) || [];
+  return [...new Set(ids)].sort().join('-').slice(0, 120);
+}
 
 // —— 机械兜底(模型不听话时的最后一道闸) ——
 // 1) 自读循环:条目文本带系统捕获标记(契约见 sink.js CAPTURE_MARK) = 本系统写入存储的
