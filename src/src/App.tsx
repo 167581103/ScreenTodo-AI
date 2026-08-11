@@ -500,18 +500,6 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
     return () => { body.removeEventListener('mousemove', move); body.removeEventListener('mouseenter', enter); body.removeEventListener('mouseleave', leave); body.removeEventListener('mousedown', down); window.removeEventListener('mouseup', up); };
   }, [sid]);
 
-  // ── 语音输入 ──
-  const [recording, setRecording] = useState(false);
-  const recogRef = useRef<any>(null);
-  const toggleVoice = useCallback(() => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition; if (!SR) return;
-    if (recording) { recogRef.current?.stop(); return; }
-    const r = new SR(); r.lang = 'zh-CN'; r.interimResults = true; r.continuous = false; recogRef.current = r;
-    r.onresult = (ev: any) => { let t = ''; for (let i=0; i<ev.results.length; i++) t += ev.results[i][0].transcript; const ta=taRef.current; if(ta){ ta.focus(); const s=window.getSelection(); const range=s?.rangeCount?s.getRangeAt(0):null; if(range&&ta.contains(range.commonAncestorContainer)){ range.deleteContents(); range.insertNode(document.createTextNode(t)); range.collapse(false); s?.removeAllRanges(); s?.addRange(range); } else { ta.appendChild(document.createTextNode(t)); } autoGrow(ta); onInput(); } };
-    r.onend = () => setRecording(false); r.onerror = () => setRecording(false);
-    r.start(); setRecording(true);
-  }, [recording]);
-
   // ── 发送 ──
   const send = useCallback(() => {
     const ta = taRef.current; const W = window.orb;
@@ -582,9 +570,6 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
         <div className="chat-bar" id="chat-bar">
           <button className={`chat-add${addOpen?' active':''}`} ref={addBtnRef} onClick={toggleAdd} aria-label="添加引用" title="引用工具 / 连接器 / 文件 / 对话">
             <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" strokeLinecap="round"/></svg>
-          </button>
-          <button className={`chat-mic${recording?' active':''}`} onClick={toggleVoice}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
           </button>
           <div ref={taRef} className="chat-text" contentEditable role="textbox" data-ph="发消息…"
             onInput={onInput}

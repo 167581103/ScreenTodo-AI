@@ -362,7 +362,7 @@ font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--
   .tool-line .detail .kv:last-child{border-bottom:none}
   .tool-line .detail .kv b{color:var(--ink-3);font-weight:500;margin-right:6px}
   .tool-line .detail .kv b{color:var(--ink-3);font-weight:400}
-  /* ── chat input:参考 uiverse plastic-parrot,统一胶囊壳,内嵌 mic/输入/发送 ── */
+  /* ── chat input:参考 uiverse plastic-parrot,统一胶囊壳,内嵌 输入/发送 ── */
   .chat-input{padding:14px 20px 18px;border-top:1px solid var(--line);flex:none;background:var(--bg)}
   .chat-bar{
     display:flex;align-items:flex-end;gap:6px;padding:6px 6px 6px 8px;
@@ -385,7 +385,7 @@ font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--
   /* @引用:黑白风格渲染(实际是给 Agent 的调用提示) */
   .chat-text .mention{color:#5868E0;font-weight:600;white-space:nowrap;cursor:default;user-select:none}
 
-  /* 圆形「+」按钮:合并原语音 / 工具入口 */
+  /* 圆形「+」按钮:工具/引用入口 */
   .chat-add{
     width:34px;height:34px;flex:none;border:none;border-radius:50%;cursor:pointer;
     background:transparent;color:var(--ink-3);display:flex;align-items:center;justify-content:center;
@@ -395,15 +395,6 @@ font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--
   .chat-add:active{transform:scale(.9)}
   .chat-add.active{color:var(--accent-ink);background:var(--accent-wash)}
   .chat-add svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round}
-
-  .chat-mic{
-    width:34px;height:34px;flex:none;border:none;border-radius:50%;cursor:pointer;
-    background:transparent;color:var(--ink-3);display:flex;align-items:center;justify-content:center;
-    transition:background .14s var(--e-out),color .14s var(--e-out);
-  }
-  .chat-mic:hover{color:var(--ink);background:color-mix(in srgb,var(--ink) 7%,transparent)}
-  .chat-mic.active{color:#ef4444;background:color-mix(in srgb,#ef4444 12%,transparent)}
-  .chat-mic svg{width:20px;height:20px}
 
   /* 圆角矩形发送按钮:沿用 logo 资产动画(纸飞机 hover 弹性飞出 → logo 弧勾滑入),仅外形由圆改方 */
   .chat-send{
