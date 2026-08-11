@@ -9,6 +9,7 @@ const { execFileSync } = require('child_process');
 const { sinkFind } = require('./sink.js'); // 写入层去重:查 todo 是否已存在于配置的存储
 const { sanitizeFrame } = require('./sanitize.js'); // 输入预处理:去通用噪声行(孤立数字/角标)
 const { segmentFrame } = require('./segment.js'); // 几何窗口分割:按坐标把糊锅多窗口切开
+const { createTools, setAllowedDirectories } = require('agent-filesystem-tools'); // 文件系统工具:读写 vault
 
 const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const SUGG_FILE = path.join(__dirname, 'suggestions.jsonl');
@@ -90,6 +91,37 @@ const agentTools = {
     },
   },
 };
+
+// 挂载文件系统工具:Agent 可读写配置的允许目录
+let orbConfig = { dirs: [path.join(os.homedir(), 'Todo', 'todo')], version: 1 };
+const ORB_CONFIG_PATH = path.join(__dirname, 'orb-config.json');
+function loadOrbConfig() {
+  try {
+    const c = JSON.parse(fs.readFileSync(ORB_CONFIG_PATH, 'utf8'));
+    orbConfig = { ...orbConfig, ...c };
+    // 解析符号链接:validatePath 会解析真实路径,allowed dirs 也必须同步
+    orbConfig.dirs = (orbConfig.dirs || []).map(d => {
+      try { return fs.realpathSync(d); } catch (e) { return d; }
+    });
+  }
+  catch (e) { /* keep defaults */ }
+}
+loadOrbConfig();
+// 每 tick 检查 mtime 实现热加载(与 prompts 热更新同模式)
+const orbConfigMtimes = {};
+function reloadOrbConfigIfChanged() {
+  try {
+    const mt = fs.statSync(ORB_CONFIG_PATH).mtimeMs;
+    if (!orbConfigMtimes.conf || orbConfigMtimes.conf !== mt) {
+      orbConfigMtimes.conf = mt;
+      loadOrbConfig();
+      setAllowedDirectories(orbConfig.dirs);
+    }
+  } catch (e) {}
+}
+const fsTools = createTools(orbConfig.dirs, orbConfig.dirs[0]);
+Object.assign(agentTools, fsTools);
+
 const agent = createAgent(CONFIG, log, agentTools);
 const judge = (screenText) => agent.runOnScreen(screenText);
 
@@ -403,6 +435,7 @@ async function judgeScreen(inc, label) {
 
 async function tick() {
   if (fs.existsSync(PAUSE_FILE)) return;
+  reloadOrbConfigIfChanged();
   const savedLastTs = lastTs;
   try {
     const inc = await fetchContext();

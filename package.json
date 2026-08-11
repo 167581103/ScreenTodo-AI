@@ -21,6 +21,7 @@
     "vite": "^6.0.0"
   },
   "dependencies": {
+    "agent-filesystem-tools": "github:167581103/servers#agent-filesystem-tools",
     "dompurify": "^3.4.12",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

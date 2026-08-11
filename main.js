@@ -93,7 +93,19 @@ const chatTools = {
     },
   },
 };
-const chatAgent = require('./agent.js')(CONFIG, log, chatTools);
+
+// 文件系统工具:Agent 可读写 orb-config.json 配置的目录
+const { createTools } = require('agent-filesystem-tools');
+let vaultRoot = '';
+(function initChatFsTools() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'orb-config.json'), 'utf8'));
+    const dirs = (cfg.dirs || []).map(d => { try { return fs.realpathSync(d); } catch (e) { return d; } });
+    if (dirs.length) { Object.assign(chatTools, createTools(dirs, dirs[0])); vaultRoot = dirs[0]; }
+  } catch (e) {}
+})();
+
+const chatAgent = require('./agent.js')({ ...CONFIG, vaultRoot }, log, chatTools);
 
 let tray = null;
 let suggWin = null;
@@ -323,6 +335,22 @@ ipcMain.on('settings:setFilter', (e, f) => {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(c, null, 2) + '\n');
     log('已更新过滤名单: deny=' + JSON.stringify(c.filter.denyApps) + ' allow=' + JSON.stringify(c.filter.allowApps));
   } catch (err) { log('写过滤名单失败: ' + err.message); }
+});
+
+// ── orb-config.json 读写 ──
+const ORB_CONFIG_PATH = path.join(__dirname, 'orb-config.json');
+const DEFAULT_ORB_CONFIG = { dirs: [], version: 1 };
+
+function readOrbConfig() {
+  try { return { ...DEFAULT_ORB_CONFIG, ...JSON.parse(fs.readFileSync(ORB_CONFIG_PATH, 'utf8')) }; }
+  catch (e) { return { ...DEFAULT_ORB_CONFIG }; }
+}
+
+ipcMain.handle('settings:get-config', () => readOrbConfig());
+ipcMain.on('settings:set-config', (e, cfg) => {
+  try {
+    fs.writeFileSync(ORB_CONFIG_PATH, JSON.stringify({ ...readOrbConfig(), ...cfg }, null, 2) + '\n');
+  } catch (err) { log('写 orb-config.json 失败: ' + err.message); }
 });
 
 // ---------- 工具可见性:查看 Agent 可访问工具 + 配置来源开关 ----------

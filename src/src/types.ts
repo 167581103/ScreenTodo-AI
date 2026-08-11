@@ -41,6 +41,11 @@ export interface SuggestionItem {
   raw?: string;
 }
 
+export interface OrbConfig {
+  dirs: string[];
+  version: number;
+}
+
 export interface OrbAPI {
   onSuggestion: (cb: (item: SuggestionItem) => void) => () => void;
   addTodo: (item: SuggestionItem) => void;
@@ -60,6 +65,8 @@ export interface OrbAPI {
   }) => void;
   getFilter: () => Promise<{ denyApps: string[]; allowApps: string[] }>;
   setFilter: (f: { denyApps: string[]; allowApps: string[] }) => void;
+  getConfig: () => Promise<OrbConfig>;
+  setConfig: (cfg: Partial<OrbConfig>) => void;
   getRunningProcesses: () => Promise<string[]>;
   toolsList: () => Promise<{ categories: { key: string; label: string; tools: { name: string; label?: string; desc?: string }[] }[] }>;
   listFiles: () => Promise<string[]>;
