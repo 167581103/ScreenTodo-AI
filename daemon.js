@@ -135,6 +135,23 @@ const titleSeen = new Set(); // 已建议过的标题(Agent 输出,可能漂移)
 const factSeen = new Set();
 function normFact(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '').slice(0, 60); }
 
+// —— 机械兜底(模型不听话时的最后一道闸) ——
+// 1) 自读循环:条目文本带 （orb）/(orb) 标记 = orb 自己的历史捕获(vault 笔记等),永不重新弹窗。
+//    真实 bad case 2026-08-11:用户浏览 vault 旧笔记,orb 把三周前自己捕获的"发PPT"当新派活重弹。
+// 2) 陈旧事实:context/reason 自带明确日期(2026/7/22、2026-07-22、2026年7月22日)且早于今天 = 历史内容。
+function isSelfCapture(it) {
+  const blob = [it.title, it.reason, it.context].filter(Boolean).join(' ');
+  return /[（(]\s*orb\s*[）)]/i.test(blob);
+}
+function isStaleFact(it) {
+  const blob = [it.context, it.reason].filter(Boolean).join(' ');
+  const m = blob.match(/(20\d{2})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})/);
+  if (!m) return false;
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  return d < t;
+}
+
 // —— 模糊去重:宁滥勿缺模式下,模型可能把同一需求换种说法重复建议,需按"近似"拦截 ——
 function normTitle(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, ''); }
 function lcsLen(a, b) {
@@ -334,6 +351,8 @@ async function handleSuggest(j, meta) {
   for (const te of tp) {
     const key = (te.item.title || '').trim();
     if (!key) continue;
+    if (isSelfCapture(te.item)) { log('[guard] orb 历史捕获标记(自读循环),跳过: ' + key); continue; }
+    if (isStaleFact(te.item)) { log('[guard] 事实日期早于今天,跳过: ' + key); continue; }
     // 源头去重：按触发原文片段指纹
     const fp = normFact(te.item.context);
     if (fp && fp.length >= 8) {
@@ -391,6 +410,8 @@ async function handleSuggest(j, meta) {
   for (const it of items) {
     const key = (it.title || '').trim();
     if (!key) continue;
+    if (isSelfCapture(it)) { log('[guard] orb 历史捕获标记(自读循环),跳过: ' + key); continue; }
+    if (isStaleFact(it)) { log('[guard] 事实日期早于今天,跳过: ' + key); continue; }
     const fp = normFact(it.context);
     if (fp && fp.length >= 8) {
       if (factSeen.has(fp)) { log('[dedup] 同一屏幕事实已判过,跳过: ' + key); continue; }
