@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
+const { CAPTURE_MARK } = require('../sink.js'); // 捕获标记单一来源,勿硬编码
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '..', '..');
 const VAULT_DAILY = process.env.ORB_VAULT_DAILY || path.join(os.homedir(), 'Todo', 'todo', '日常');
@@ -36,7 +37,7 @@ function vaultTitles() {
 function doAdd(todo) {
   const ts = new Date().toLocaleString('zh-CN');
   const ctx = (todo.context || todo.raw || '').replace(/\n/g, ' ').slice(0, 120);
-  const plan = { tasks: [{ title: todo.title, note: `来源:${ctx} | ${ts} (orb)` }] };
+  const plan = { tasks: [{ title: todo.title, note: `来源:${ctx} | ${ts} ${CAPTURE_MARK}` }] };
   const tmp = path.join(__dirname, `.tmp_plan_${Date.now()}.json`);
   fs.writeFileSync(tmp, JSON.stringify(plan));
   try {

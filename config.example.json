@@ -1,6 +1,11 @@
 {
   "user": {
-    "name": "你的名字(会替换 prompts/*.md 里的 {{USER}} 占位符)"
+    "name": "你的名字(会替换 prompts/*.md 里的 {{USER}} 占位符)",
+    "rules": [
+      "个人判读偏好,逐条写,会替换 prompts 里的 {{USER_RULES}} 占位符",
+      "例:我在 Obsidian/笔记应用里浏览时,屏幕内容一律不算派活",
+      "例:xx 群里的消息不用管"
+    ]
   },
   "deepseek": {
     "apiBase": "https://api.deepseek.com",
@@ -24,9 +29,14 @@
     "baselineFrames": 30
   },
   "filter": {
-    "denyApps": ["聚焦", "终端"],
+    "denyApps": [
+      "聚焦",
+      "终端"
+    ],
     "allowApps": [],
-    "chromePatterns": ["WorkBuddy( v[\\d.]+)?"]
+    "chromePatterns": [
+      "WorkBuddy( v[\\d.]+)?"
+    ]
   },
   "appearance": {
     "theme": "auto"

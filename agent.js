@@ -30,6 +30,9 @@ function loadPrompt(name, ctx) {
     if (!_pc[name] || _pc[name].mt !== mt) _pc[name] = { mt, raw: fs.readFileSync(file, 'utf8') };
     let s = _pc[name].raw.replace(/\{\{USER\}\}/g, (ctx && ctx.user) || '用户');
     s = s.replace(/\{\{VAULT_ROOT\}\}/g, (ctx && ctx.vault) || '');
+    // 用户个人规则(config.json user.rules,私人配置不入 git;prompt 模板保持通用)。
+    const _rules = (ctx && ctx.rules) || [];
+    s = s.replace(/\{\{USER_RULES\}\}/g, _rules.length ? _rules.map(r => '- ' + r).join('\n') : '(无)');
     // 当天日期(判"历史内容 vs 新派活"的时间锚点)。按天粒度,当天内稳定,不破坏 API 前缀缓存。
     const _d = new Date();
     const _week = ['周日','周一','周二','周三','周四','周五','周六'][_d.getDay()];
@@ -264,6 +267,8 @@ module.exports = function createAgent(CONFIG, log, tools) {
 
   const userName = (CONFIG.user && CONFIG.user.name) || 'chancguo(郭辰)';
   const vaultRoot = CONFIG.vaultRoot || '';
+  const userRules = (CONFIG.user && CONFIG.user.rules) || [];
+  const promptCtx = { user: userName, rules: userRules };
 
   // 前置闸门:轻量场景判。只判"这屏是什么场景、是否可能向 user 派活",不找具体待办。
   // 输入可只喂精简特征(头部片段),单次无工具调用,system prompt 固定高缓存 → 很便宜。
@@ -271,7 +276,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
   async function classifyScene(sceneText) {
     try {
       const { msg } = await call([
-        { role: 'system', content: loadPrompt('scene', { user: userName }) },
+        { role: 'system', content: loadPrompt('scene', promptCtx) },
         { role: 'user', content: '这一屏的内容:\n' + sceneText },
       ], false, true, null, 'small'); // 小模型做场景分类(极低成本,支持 JSON 输出)
       const j = safeParse(msg.content);
@@ -285,7 +290,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
   // 入口一:后台 tick 自动判读屏幕文本 → 返回 todo JSON。每次实时载入 prompts/judge.md(热更新)
   async function runOnScreen(screenText) {
     return react([
-      { role: 'system', content: loadPrompt('judge', { user: userName }) },
+      { role: 'system', content: loadPrompt('judge', promptCtx) },
       { role: 'user', content: '当前屏幕内容:\n' + screenText },
     ], true);
   }
@@ -293,7 +298,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
   // 入口二:前台对话 → 返回自然语言回复。每次实时载入 prompts/chat.md(热更新)
   // emit(可选):传入则启用 agui 流式事件(主进程转发给渲染层)
   async function runOnChat(userMsg, history, emit) {
-    const messages = [{ role: 'system', content: loadPrompt('chat', { user: userName }) }];
+    const messages = [{ role: 'system', content: loadPrompt('chat', promptCtx) }];
     if (Array.isArray(history)) messages.push(...history);
     // 用户上下文:文件系统根目录。作为 user 消息注入,而非系统 prompt,因为这是用户自有数据。
     if (vaultRoot) messages.push({ role: 'user', content: `我的文件都在 ${vaultRoot} 目录下。读写文件时路径以此为基准,不要拼绝对路径搞错大小写。` });
@@ -310,5 +315,5 @@ module.exports = function createAgent(CONFIG, log, tools) {
     return (msg.content || '').trim();
   }
 
-  return { runOnScreen, runOnChat, classifyScene, runLight, get PROMPT() { return loadPrompt('judge', { user: userName }); } };
+  return { runOnScreen, runOnChat, classifyScene, runLight, get PROMPT() { return loadPrompt('judge', promptCtx); } };
 };

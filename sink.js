@@ -52,4 +52,12 @@ async function sinkFind(todo) {
   return !!(r && r.exists);
 }
 
-module.exports = { sinkAdd, sinkFind, SINK };
+// 系统输出契约:每条 sink 捕获写入存储时都带此标记(见 sinks/local-vault.js)。
+// 判读层(daemon.js isSelfCapture)靠它识别"屏幕上显示的是本系统自己的历史捕获",
+// 防止自读循环(系统 OCR 到自己的输出 → 当成新派活再次弹窗)。
+// 单一事实来源:写入方和判读方都必须引用这里,不要各自硬编码字符串。
+const CAPTURE_MARK = '(orb)';
+// OCR 可能把 ASCII 括号识别成全角,匹配时兼容两种括号。
+const CAPTURE_MARK_RE = /[（(]\s*orb\s*[）)]/i;
+
+module.exports = { sinkAdd, sinkFind, SINK, CAPTURE_MARK, CAPTURE_MARK_RE };

@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
-const { sinkFind } = require('./sink.js'); // 写入层去重:查 todo 是否已存在于配置的存储
+const { sinkFind, CAPTURE_MARK_RE } = require('./sink.js'); // 写入层去重 + 系统捕获标记(自读循环判定)
 const { sanitizeFrame } = require('./sanitize.js'); // 输入预处理:去通用噪声行(孤立数字/角标)
 const { segmentFrame } = require('./segment.js'); // 几何窗口分割:按坐标把糊锅多窗口切开
 const { createTools, setAllowedDirectories } = require('agent-filesystem-tools'); // 文件系统工具:读写 vault
@@ -136,12 +136,12 @@ const factSeen = new Set();
 function normFact(s) { return (s || '').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '').slice(0, 60); }
 
 // —— 机械兜底(模型不听话时的最后一道闸) ——
-// 1) 自读循环:条目文本带 （orb）/(orb) 标记 = orb 自己的历史捕获(vault 笔记等),永不重新弹窗。
-//    真实 bad case 2026-08-11:用户浏览 vault 旧笔记,orb 把三周前自己捕获的"发PPT"当新派活重弹。
+// 1) 自读循环:条目文本带系统捕获标记(契约见 sink.js CAPTURE_MARK) = 本系统写入存储的
+//    历史捕获再次出现在屏幕上,永不重新弹窗。判定依据是系统自己的输出签名,不是猜字符串。
 // 2) 陈旧事实:context/reason 自带明确日期(2026/7/22、2026-07-22、2026年7月22日)且早于今天 = 历史内容。
 function isSelfCapture(it) {
   const blob = [it.title, it.reason, it.context].filter(Boolean).join(' ');
-  return /[（(]\s*orb\s*[）)]/i.test(blob);
+  return CAPTURE_MARK_RE.test(blob);
 }
 function isStaleFact(it) {
   const blob = [it.context, it.reason].filter(Boolean).join(' ');
