@@ -23,19 +23,21 @@ const path = require('path');
 // (个人身份在 config,不入 git;prompt 模板通用,可入 git)。
 const PROMPT_DIR = path.join(__dirname, 'prompts');
 const _pc = {};
-function loadPrompt(name, userName) {
+function loadPrompt(name, ctx) {
   const file = path.join(PROMPT_DIR, name + '.md');
   try {
     const mt = fs.statSync(file).mtimeMs;
     if (!_pc[name] || _pc[name].mt !== mt) _pc[name] = { mt, raw: fs.readFileSync(file, 'utf8') };
-    return _pc[name].raw.replace(/\{\{USER\}\}/g, userName || '用户');
+    let s = _pc[name].raw.replace(/\{\{USER\}\}/g, (ctx && ctx.user) || '用户');
+    s = s.replace(/\{\{VAULT_ROOT\}\}/g, (ctx && ctx.vault) || '');
+    return s;
   } catch (e) { return '(prompt 文件缺失: ' + file + ')'; }
 }
 
 module.exports = function createAgent(CONFIG, log, tools) {
   log = log || (() => {});
   tools = tools || {};
-  const MAX_STEPS = (CONFIG.agent && CONFIG.agent.maxSteps) || 3; // ReAct 最多轮数(含首判)
+  const MAX_STEPS = (CONFIG.agent && CONFIG.agent.maxSteps) || 6; // ReAct最多轮数(含首判)
   const toolDefs = Object.values(tools).map((t) => t.def).filter(Boolean);
 
   // 单次 LLM 调用。allowTools 决定是否带 tools。jsonOut=true 时末轮强制 JSON(判读用);
@@ -123,10 +125,13 @@ module.exports = function createAgent(CONFIG, log, tools) {
           if (d.content) { content += d.content; onToken(d.content); }
           if (d.tool_calls) {
             for (const tc of d.tool_calls) {
-              const c = ensure(tc.index || 0);
-              c.id = c.id || tc.id;
-              c.name = (c.name || '') + (tc.function?.name || '');
-              c.args = (c.args || '') + (tc.function?.arguments || '');
+              // index 必须显式判断:DeepSeek 后续 delta 会省略 index,用 `|| 0`
+              // 会把所有工具调用误并到 calls[0],导致 name/arguments 拼接成垃圾。
+              const idx = typeof tc.index === 'number' ? tc.index : calls.length ? calls.length - 1 : 0;
+              const c = ensure(idx);
+              if (tc.id) c.id = tc.id;
+              if (tc.function?.name) c.name = (c.name || '') + tc.function.name;
+              if (tc.function?.arguments) c.args = (c.args || '') + tc.function.arguments;
             }
           }
           if (j.usage) usage = j.usage;
@@ -137,9 +142,10 @@ module.exports = function createAgent(CONFIG, log, tools) {
       const total = u.prompt_tokens || 0;
       const out = u.completion_tokens || 0;
       if (total > 0) log(`[cache] 命中 ${hit}/${total} (${(hit / total * 100).toFixed(0)}%) 输出${out}`);
+      if (calls.length) log('[stream tool_calls] ' + JSON.stringify(calls));
       const msg = {
         content,
-        tool_calls: calls.length ? calls.map(c => ({ id: c.id, function: { name: c.name, arguments: c.args || '{}' } })) : undefined,
+        tool_calls: calls.length ? calls.map(c => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.args || '{}' } })) : undefined,
       };
       return { msg, usage: { hit, total, out } };
     } finally { clearTimeout(t); }
@@ -221,9 +227,6 @@ module.exports = function createAgent(CONFIG, log, tools) {
           trace.push({ name: name || '?', args, result: String(result).slice(0, 600) }); // 出生证用:工具轨迹
           messages.push({ role: 'tool', tool_call_id: c.id, content: String(result).slice(0, 4000) });
         }
-        // 对话模式:工具结果拿到后,追一条指令逼模型基于结果给自然语言答复
-        // (否则 DeepSeek 有时在工具轮后直接返回空 content,导致"调了工具就没下文")
-        if (!jsonOut) messages.push({ role: 'user', content: '基于以上工具结果,用中文简洁回答我最初的问题。不要再调用工具,直接给结论。' });
         continue;
       }
       // 没调工具:最终结论
@@ -255,6 +258,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
   }
 
   const userName = (CONFIG.user && CONFIG.user.name) || 'chancguo(郭辰)';
+  const vaultRoot = CONFIG.vaultRoot || '';
 
   // 前置闸门:轻量场景判。只判"这屏是什么场景、是否可能向 user 派活",不找具体待办。
   // 输入可只喂精简特征(头部片段),单次无工具调用,system prompt 固定高缓存 → 很便宜。
@@ -262,7 +266,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
   async function classifyScene(sceneText) {
     try {
       const { msg } = await call([
-        { role: 'system', content: loadPrompt('scene', userName) },
+        { role: 'system', content: loadPrompt('scene', { user: userName }) },
         { role: 'user', content: '这一屏的内容:\n' + sceneText },
       ], false, true, null, 'small'); // 小模型做场景分类(极低成本,支持 JSON 输出)
       const j = safeParse(msg.content);
@@ -276,7 +280,7 @@ module.exports = function createAgent(CONFIG, log, tools) {
   // 入口一:后台 tick 自动判读屏幕文本 → 返回 todo JSON。每次实时载入 prompts/judge.md(热更新)
   async function runOnScreen(screenText) {
     return react([
-      { role: 'system', content: loadPrompt('judge', userName) },
+      { role: 'system', content: loadPrompt('judge', { user: userName }) },
       { role: 'user', content: '当前屏幕内容:\n' + screenText },
     ], true);
   }
@@ -284,8 +288,10 @@ module.exports = function createAgent(CONFIG, log, tools) {
   // 入口二:前台对话 → 返回自然语言回复。每次实时载入 prompts/chat.md(热更新)
   // emit(可选):传入则启用 agui 流式事件(主进程转发给渲染层)
   async function runOnChat(userMsg, history, emit) {
-    const messages = [{ role: 'system', content: loadPrompt('chat', userName) }];
+    const messages = [{ role: 'system', content: loadPrompt('chat', { user: userName }) }];
     if (Array.isArray(history)) messages.push(...history);
+    // 用户上下文:文件系统根目录。作为 user 消息注入,而非系统 prompt,因为这是用户自有数据。
+    if (vaultRoot) messages.push({ role: 'user', content: `我的文件都在 ${vaultRoot} 目录下。读写文件时路径以此为基准,不要拼绝对路径搞错大小写。` });
     messages.push({ role: 'user', content: userMsg });
     return react(messages, false, emit);
   }
@@ -299,5 +305,5 @@ module.exports = function createAgent(CONFIG, log, tools) {
     return (msg.content || '').trim();
   }
 
-  return { runOnScreen, runOnChat, classifyScene, runLight, get PROMPT() { return loadPrompt('judge', userName); } };
+  return { runOnScreen, runOnChat, classifyScene, runLight, get PROMPT() { return loadPrompt('judge', { user: userName }); } };
 };

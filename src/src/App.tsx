@@ -551,7 +551,7 @@ function ChatViewImpl({ sid }: { sid: string|null }) {
           case 'RUN_ERROR': setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+(ev.error||'未知错误')}]); break;
         }
       },
-      onDone(result){ setBusy(false); if(result&&result.reply){setMessages(prev=>prev.some(m=>m.role==='assistant'&&m.content===result.reply)?prev:prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')).concat({role:'assistant',content:result.reply}))} },
+      onDone(result){ setBusy(false); if(result&&result.reply){const r=result.reply;requestAnimationFrame(()=>{setMessages(prev=>{const last=prev[prev.length-1];if(last&&last.role==='assistant'){const n=[...prev];n[n.length-1]={...last,content:r};return n}else{return [...prev.filter(m=>!(m.role==='assistant'&&m.content==='\u200B')),{role:'assistant',content:r}]}})})} },
       onError(err){ setMessages(prev=>[...prev,{role:'assistant',content:'出错了：'+err}]); setBusy(false); },
     });
   }, [busy, sid, closeAdd]);
