@@ -323,9 +323,21 @@ module.exports = function createAgent(CONFIG, log, tools) {
   function createJudgeSession() {
     const msgs = [{ role: 'system', content: loadPrompt('judge', promptCtx) }];
     let ledger = [];
+    const ledgerTxt = () => ledger.length
+      ? '【已通知清单 — 以下事项已弹过窗,勿重复通知;有新进展除外】\n' + ledger.slice(-80).map(t => '- ' + t).join('\n')
+      : '';
     return {
       chars() { let n = 0; for (const m of msgs) n += (m.content || '').length; return n; },
-      setLedger(titles) { ledger = Array.isArray(titles) ? titles : []; },
+      setLedger(titles) {
+        ledger = Array.isArray(titles) ? titles : [];
+        // 会话还只有 system(启动阶段)时立刻把台账注入时间线 —— 否则重启后首批判读
+        // 看不到"已通知过什么",同一事项换标题会重复弹(真实 case 2026-08-11:同一 TAPD
+        // 缺陷 14:14/14:24 两次弹窗,中间隔了一次 daemon 重启)。
+        if (ledger.length && msgs.length === 1) {
+          msgs.push({ role: 'user', content: ledgerTxt() });
+          msgs.push({ role: 'assistant', content: '了解,这些事项我不会重复通知。' });
+        }
+      },
       // 供压缩器读取的旧段文本(跳过 system 与最近 keepTail 条)
       dump(keepTail, maxChars) {
         const end = Math.max(1, msgs.length - (keepTail || 4));
@@ -355,12 +367,9 @@ module.exports = function createAgent(CONFIG, log, tools) {
           if (msgs[i].role === 'user') { seen++; if (seen >= kr) { cut = i; break; } }
         }
         const kept = cut < msgs.length ? msgs.slice(cut) : [];
-        const ledgerTxt = ledger.length
-          ? '\n\n【已通知清单 — 以下事项已弹过窗,勿重复通知】\n' + ledger.slice(-80).map(t => '- ' + t).join('\n')
-          : '';
         msgs.length = 0;
         msgs.push({ role: 'system', content: loadPrompt('judge', promptCtx) });
-        msgs.push({ role: 'user', content: '【上下文压缩】以下是之前屏幕监控历史的摘要,供你延续判读:\n' + summary + ledgerTxt });
+        msgs.push({ role: 'user', content: '【上下文压缩】以下是之前屏幕监控历史的摘要,供你延续判读:\n' + summary + (ledgerTxt() ? '\n\n' + ledgerTxt() : '') });
         msgs.push({ role: 'assistant', content: '了解。我已掌握此前的监控历史与已通知清单,在此基础上继续判读。' });
         for (const m of kept) msgs.push(m);
       },
