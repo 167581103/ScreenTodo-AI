@@ -475,8 +475,11 @@ async function judgeScreen(inc, label) {
   }
 }
 
+let ticking = false;
 async function tick() {
   if (fs.existsSync(PAUSE_FILE)) return;
+  if (ticking) { log('[tick] 上一轮未完成,跳过'); return; }
+  ticking = true;
   reloadOrbConfigIfChanged();
   const savedLastTs = lastTs;
   try {
@@ -492,6 +495,8 @@ async function tick() {
   } catch (e) {
     lastTs = savedLastTs;
     log('tick 错误: ' + e.message);
+  } finally {
+    ticking = false;
   }
 }
 
