@@ -25,6 +25,37 @@ function makeDSU(n) {
   return { find, union: (a, b) => { p[find(a)] = find(b); } };
 }
 
+// 把词块重建成二维行文本(上下文算法的核心):
+// 同一视觉行的词块 cy 有像素级抖动,直接按 (cy,cx) 裸排序会把不同行的块交错在一起
+// —— 列表/表单类 UI 因此被拍平成"逐块流水",空间相邻但无关的块(如会话列表里
+// 上一个条目的预览和下一个条目的时间)会被语义层误读成一段对话。真实 bad case 2026-08-11。
+// 做法:按 cy 聚行(容差 0.7*中位块高,行进均值防漂移) → 行内按 x 排序,
+// 水平间距大(>1.2*中位块高,视为分栏)用 " ｜ " 连接,否则用空格 → 行间换行。
+function blocksToRows(boxes, medH) {
+  const h = medH || 0.02;
+  const rowTol = h * 0.7;
+  const sorted = boxes.slice().sort((a, b) => a.cy - b.cy);
+  const rows = [];
+  for (const b of sorted) {
+    const last = rows[rows.length - 1];
+    if (last && Math.abs(b.cy - last.cy) <= rowTol) {
+      last.blocks.push(b);
+      last.cy = (last.cy * (last.blocks.length - 1) + b.cy) / last.blocks.length;
+    } else {
+      rows.push({ cy: b.cy, blocks: [b] });
+    }
+  }
+  return rows.map(r => {
+    const bs = r.blocks.sort((a, b) => a.x - b.x);
+    let s = bs[0].text;
+    for (let i = 1; i < bs.length; i++) {
+      const gap = bs[i].x - (bs[i - 1].x + bs[i - 1].w);
+      s += (gap > h * 1.2 ? ' ｜ ' : ' ') + bs[i].text;
+    }
+    return s;
+  }).join('\n');
+}
+
 // 把词块聚成区域。返回 [{x0,y0,x1,y1,area,n,text}], 按面积降序。
 function segmentBoxes(boxes, opts = {}) {
   if (boxes.length < 2) {
@@ -54,7 +85,7 @@ function segmentBoxes(boxes, opts = {}) {
     .map(bs => {
       const x0 = Math.min(...bs.map(b => b.x)), y0 = Math.min(...bs.map(b => b.y));
       const x1 = Math.max(...bs.map(b => b.x + b.w)), y1 = Math.max(...bs.map(b => b.y + b.h));
-      const text = bs.slice().sort((a, b) => (a.cy - b.cy) || (a.cx - b.cx)).map(b => b.text).join(' ');
+      const text = blocksToRows(bs, medH);
       return { x0, y0, x1, y1, area: (x1 - x0) * (y1 - y0), n: bs.length, text };
     })
     .sort((a, b) => b.area - a.area);
