@@ -30,6 +30,11 @@ function loadPrompt(name, ctx) {
     if (!_pc[name] || _pc[name].mt !== mt) _pc[name] = { mt, raw: fs.readFileSync(file, 'utf8') };
     let s = _pc[name].raw.replace(/\{\{USER\}\}/g, (ctx && ctx.user) || '用户');
     s = s.replace(/\{\{VAULT_ROOT\}\}/g, (ctx && ctx.vault) || '');
+    // 当天日期(判"历史内容 vs 新派活"的时间锚点)。按天粒度,当天内稳定,不破坏 API 前缀缓存。
+    const _d = new Date();
+    const _week = ['周日','周一','周二','周三','周四','周五','周六'][_d.getDay()];
+    const _today = _d.getFullYear() + '-' + String(_d.getMonth() + 1).padStart(2, '0') + '-' + String(_d.getDate()).padStart(2, '0') + ' ' + _week;
+    s = s.replace(/\{\{TODAY\}\}/g, _today);
     return s;
   } catch (e) { return '(prompt 文件缺失: ' + file + ')'; }
 }
