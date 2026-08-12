@@ -48,16 +48,14 @@ const agentTools = {
       },
     },
     run: async (args) => {
-      const raw = await fetchRaw(40); // 拉最近 40 帧(已过滤+sanitize)
+      const raw = await fetchRaw(40);
       let picked = raw;
-      if (args && args.app) picked = raw.filter((f) => (f.app || '').includes(args.app));
-      if (!picked.length) picked = raw; // 该 app 没匹配到,退回全部
       // 时间正序、去重、截断,拼成可读上下文
       const seen = new Set(); const lines = [];
       for (const f of picked.slice(0, 20)) {
         const key = f.txt.replace(/\s+/g, '').slice(0, 120);
         if (seen.has(key)) continue; seen.add(key);
-        lines.push(`[${f.app || '?'}] ${f.txt.slice(-500)}`);
+        lines.push(f.txt.slice(-500));
       }
       const out = lines.join('\n').slice(0, 3500);
       return out || '(未取到更多上下文)';
@@ -204,23 +202,13 @@ async function fetchRaw(limit, sinceTs) {
     const r = await fetch(url, { signal: ac.signal, headers });
     const d = await r.json();
     const items = d.data || [];
-    // 白/黑名单:每次实时从 config.json 读取 → 设置页改动即时生效,无需重启 daemon。
-    // allowApps 非空 → 只放行名单内;denyApps → 一律拦截。兼容旧 monitor.ignoreApps。
-    let flt = CONFIG.filter || {};
-    try { flt = (JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')).filter) || flt; } catch (e) {}
-    const denyApps = flt.denyApps || CONFIG.monitor.ignoreApps || [];
-    const allowApps = flt.allowApps || [];
     const out = [];
     for (const it of items) {
       const c = it.content || {};
-      const app = c.app_name || '';
       const rawTxt = (c.text || '').trim();
-      if (allowApps.length && !allowApps.includes(app)) continue; // 白名单模式
-      if (denyApps.includes(app)) continue;                        // 黑名单
-      // 行级剥离 chrome / 通用噪声,保留同屏其它窗口内容
       const txt = sanitizeFrame(rawTxt);
       if (!txt) continue;
-      out.push({ fid: c.frame_id || 0, app, txt, ts: c.timestamp || null });
+      out.push({ fid: c.frame_id || 0, txt, ts: c.timestamp || null });
     }
     return out;
   } finally {
@@ -307,13 +295,12 @@ async function fetchContext() {
   // 拉最近若干帧(取比 K 略多,过滤后凑够 K)
   const raw = await fetchRaw(Math.max(K * 3, 20));
   const lines = [];
-  const apps = new Set();
   let maxTs = lastTs;
   // raw 是按时间倒序(最新在前),取前 K 个有文本的帧,再反转成时间正序
   const picked = [];
   for (const f of raw) {
     if (f.ts && (!maxTs || f.ts > maxTs)) maxTs = f.ts;
-    if (f.txt && picked.length < K) { picked.push(f); if (f.app) apps.add(f.app); }
+    if (f.txt && picked.length < K) picked.push(f);
   }
   picked.reverse(); // 时间正序:旧→新,符合阅读顺序
   // 几何窗口分割:批量取这些帧的 text_json,能切开的帧按区域分别成行(区域间空间独立)。
@@ -329,18 +316,16 @@ async function fetchContext() {
         const clean = sanitizeFrame(rg);
         if (!clean) continue;
         const fp = normRegion(clean);
-        if (fp.length < 8 || seenRegion.has(fp)) continue; // 跨帧重复区域(如侧边栏)只留一次
+        if (fp.length < 8 || seenRegion.has(fp)) continue;
         seenRegion.add(fp);
-        // 每区域标注简短指纹(fq=前6字)用于跨帧去重
-        const fq = fp.slice(0, 6);
-        lines.push(`[${f.app}·${fq}] ${clean.slice(-PERFRAME)}`);
+        lines.push(clean.slice(-PERFRAME));
       }
     } else {
       const clean = f.txt;
       const fp = normRegion(clean);
       if (seenRegion.has(fp)) continue;
       seenRegion.add(fp);
-      lines.push(`[${f.app}] ${clean.slice(-PERFRAME)}`);
+      lines.push(clean.slice(-PERFRAME));
     }
   }
   // 区域数封顶:保留最新(尾部)的 N 个,防止碎片撑爆
@@ -350,7 +335,7 @@ async function fetchContext() {
   let tot = lines.reduce((s, l) => s + l.length, 0);
   let truncated = false;
   while (lines.length > 1 && tot > MAXC) { tot -= lines.shift().length; truncated = true; }
-  return { lines, apps: [...apps], truncated };
+  return { lines, truncated };
 }
 
 async function handleSuggest(j, meta) {
@@ -377,7 +362,6 @@ async function handleSuggest(j, meta) {
     const rec = {
       id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       item: te.item,
-      apps: meta?.apps || [],
       raw: meta?.raw || te.item.context || '',
       ts: new Date().toISOString(),
       trigger: 'agent-tool',
@@ -434,7 +418,6 @@ async function handleSuggest(j, meta) {
     const rec = {
       id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       item: it,
-      apps: meta?.apps || [],
       raw: meta?.raw || '',
       ts: new Date().toISOString(),
       birth: {
@@ -460,7 +443,7 @@ async function judgeScreen(inc, label) {
   log(`[${label}:scene] ${sc.scene} · 可能派活 → 进细判 (会话 ${Math.round(session.chars() / 1000)}k字)`);
   const j = await session.judge(screenText);
   log(`[${label}:judge] suggest=` + j.suggest + (j.suggest ? ' ' + (j.items ? j.items.map(i => i.title).join('; ') : j.title) : ''));
-  await handleSuggest(j, { apps: inc.apps, raw: screenText.slice(0, 2000), scene: sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
+  await handleSuggest(j, { raw: screenText.slice(0, 2000), scene: sc, trace: j._trace || [], steps: j._steps || 1, dialog: j._dialog || [], thinking: j._thinking || '' });
   // 上下文预算:超阈值则压缩旧段(摘要 + 已通知台账 + 最近若干插入点),会话继续演进
   const MAXS = (CONFIG.monitor.sessionMaxChars || 60000);
   if (session.chars() > MAXS) {
@@ -490,7 +473,7 @@ async function tick() {
     if (h === lastWinHash) { return; }
     lastWinHash = h;
     stats.rounds = (stats.rounds || 0) + 1;
-    log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 行 ${screenText.length}字` + (inc.truncated ? ' [截断]' : '') + (inc.apps.includes('企业微信') ? ' [群聊]' : ''));
+    log(`[tick #${stats.rounds}] 窗口 ${inc.lines.length} 行 ${screenText.length}字` + (inc.truncated ? ' [截断]' : ''));
     await judgeScreen(inc, 'tick');
   } catch (e) {
     lastTs = savedLastTs;

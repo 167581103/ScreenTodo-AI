@@ -30,16 +30,6 @@
     "sessionMaxChars": 60000,
     "compactRecent": 2
   },
-  "filter": {
-    "denyApps": [
-      "聚焦",
-      "终端"
-    ],
-    "allowApps": [],
-    "chromePatterns": [
-      "WorkBuddy( v[\\d.]+)?"
-    ]
-  },
   "appearance": {
     "theme": "auto"
   }
